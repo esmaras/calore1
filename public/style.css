@@ -141,7 +141,7 @@ tbody tr:hover { background: rgba(255,255,255,0.02); }
 
 .table-scroll { overflow-x: auto; }
 
-input[type="text"], input[type="number"], textarea, select {
+input[type="text"], input[type="number"], input[type="password"], textarea, select {
   background: var(--input-bg);
   border: 1px solid var(--border);
   color: var(--text);
@@ -163,9 +163,22 @@ input:focus, textarea:focus, select:focus {
   font-variant-numeric: tabular-nums;
 }
 
-.pos-1 { color: #ffd54a; font-weight: 700; }
-.pos-2 { color: #d9d9d9; font-weight: 700; }
-.pos-3 { color: #d78a4d; font-weight: 700; }
+/* Classes for coloring standings ranks — 1st/2nd/3rd get their own color,
+   every other position shares .pos-other (see podiumClass() in app.js) */
+.pos-1 { color: #d6a500; font-weight: 700; }
+.pos-2 { color: #a1a1a1; font-weight: 700; }
+.pos-3 { color: #9c4b0a; font-weight: 700; }
+.pos-other { color: #0079c1; font-weight: 700; }
+
+/* Classes for coloring points reference table rows */
+.pos-ref-1 { background: #d6a500; }
+.pos-ref-1:hover { background: #d0b047; }
+.pos-ref-2 { background: #a1a1a1; }
+.pos-ref-2:hover { background: #bab7b7; }
+.pos-ref-3 { background: #9c4b0a; }
+.pos-ref-3:hover { background: #90592c; }
+.pos-ref-other { background: #0079c1; }
+.pos-ref-other:hover { background: #3787b8; }
 
 .driver-grid {
   display: grid;
@@ -245,6 +258,64 @@ input:focus, textarea:focus, select:focus {
 .tier-C { color: #a0e0a0; }
 .tier-D { color: #cfd3da; }
 .tier-F { color: #888; }
+
+.credentials-banner {
+  margin: 16px 24px 0;
+  padding: 14px 18px;
+  background: var(--bg-panel);
+  border: 1px solid var(--good);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.credentials-banner code {
+  background: var(--input-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.95em;
+}
+
+.credentials-banner.error { border-color: var(--accent); }
+
+.auth-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px;
+}
+
+.auth-card h1 {
+  font-size: 1.3rem;
+  margin: 0 0 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.auth-card .muted { margin-bottom: 20px; }
+
+.auth-field { margin-bottom: 14px; }
+.auth-field label { display: block; font-size: 0.85rem; color: var(--text-dim); margin-bottom: 6px; }
+
+.auth-error {
+  color: var(--accent);
+  font-size: 0.85rem;
+  margin-bottom: 14px;
+  min-height: 1.2em;
+}
 
 footer.hint {
   text-align: center;

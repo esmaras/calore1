@@ -7,6 +7,9 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+<div id="auth-screen"></div>
+
+<div id="app-shell" style="display:none;">
 <header class="topbar">
   <div class="brand">
     <span class="flag">🏁</span>
@@ -16,6 +19,9 @@
     </div>
   </div>
   <div style="display:flex; align-items:center; gap:10px;">
+    <div id="season-switcher"></div>
+    <span class="muted" id="whoami"></span>
+    <button class="btn small" id="logout-btn">Log out</button>
     <button class="btn small" id="save-now-btn">Save now</button>
     <div class="save-state" id="save-state">Loading…</div>
   </div>
@@ -23,7 +29,10 @@
 
 <nav class="tabs" id="tabs"></nav>
 
+<div id="credentials-banner"></div>
+
 <main id="tab-content" class="tab-content"></main>
+</div>
 
 <template id="tpl-nothing">
   <p class="muted">Nothing here yet.</p>

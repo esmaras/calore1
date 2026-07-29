@@ -1,0 +1,23 @@
+{
+  "name": "calore1",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Calore 1 heat racing campaign tracker",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node --env-file=.env.dev server/index.js",
+    "dynamodb:up": "docker compose up -d",
+    "dynamodb:down": "docker compose down",
+    "db:create-table": "node --env-file=.env.dev scripts/create-dynamodb-table.js",
+    "db:migrate": "node --env-file=.env.dev scripts/migrate-to-dynamodb.js",
+    "db:export": "node --env-file=.env.dev scripts/export-to-json.js",
+    "test": "node --env-file=.env.dev --test tests/"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.658.0",
+    "@aws-sdk/lib-dynamodb": "^3.658.0",
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "express": "^4.19.2"
+  }
+}

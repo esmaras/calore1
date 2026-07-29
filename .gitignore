@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+
+# Terraform — local state/plan/provider-cache artifacts. .terraform.lock.hcl
+# is intentionally NOT ignored: it pins provider versions and should be
+# committed, same as a package-lock.json.
+infra/.terraform/
+infra/*.tfplan
+infra/tfplan
+infra/*.tfstate
+infra/*.tfstate.*
+infra/crash.log
+infra/crash.*.log

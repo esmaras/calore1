@@ -1,0 +1,12 @@
+node_modules
+.env
+.env.*
+!.env.example
+*.log
+tests
+docker-compose.yml
+infra
+data.json
+extract.py
+calore_1_heat_campaign.xlsx
+.git
