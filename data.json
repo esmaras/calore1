@@ -1,0 +1,1288 @@
+{
+  "lore": {
+    "leagueName": "Calore 1 (C1)",
+    "governingBody": "Federazione Internazionale delle Competizioni di Calore (FICC)",
+    "founded": "1961 — following a controversial rules dispute with the establishment of the \"Intercontinental Race Series\" (IRS)",
+    "motto": "Win at All Costs",
+    "driversTrophy": {
+      "name": "The Axle Carbone Trophy",
+      "aboutPerson": "Axle Carbone",
+      "about": "Axle Carbone was born in 1927 in a small garage town outside Lyon, France, the son of a mechanic who never once let him sit still. By nineteen he was racing anything with an engine; by twenty-four he had won back-to-back Intercontinental championships in the IRS's founding seasons of 1950 and 1951. He was famous for two things: an uncanny ability to nurse a damaged car to the finish line, and a complete refusal to pit when the strategy called for it. \"The track is where races are won,\" he said once. \"The pits are where they are lost.\" He retired abruptly after the 1955 season with four championships to his name — some say after a falling-out with the IRS stewards over a disputed penalty at the Monte Circuit finale, a race he crossed first but was stripped of on a technicality. He never spoke publicly about it. After a rules dispute at the end of the 1960 season, a contingent of drivers and teams broke off from IRS and created the Calore 1 (C1) racing series. They named the driver's championship trophy the Alex Carbnone Cup. The trophy carries his initials — A.C. — stamped into the base in carbon steel. Carbone, having bitterly retired in 1955, agreed to join C1, lining up on the grid as a worldwide legend. ",
+      "awardedTo": "The season's top individual driver — Driver's Championship winner"
+    },
+    "constructorsTrophy": {
+      "name": "The Lucca Pistone Constructor's Cup",
+      "aboutPerson": "Lucca Pistone",
+      "about": "Lucca Pistone never drove a competitive lap in his life, and he would have been the first to tell you so. An Italian engineer from Forli, he arrived at the ISR's inaugural season in 1950 as a car builder — and within three years his cars had won everything worth winning. His philosophy was obsessive: every component had a purpose, every gram of weight had to earn its place, and the piston was his personal symbol — he saw it as the essence of engineering, raw power and force that is the key component to an engine. He built cars for Axle Carbone's championship runs and later for three other title winners. He died in 1960 during a pre-season test when a fuel line failed — characteristically, the investigation found the failure was in a component he had explicitly flagged for replacement the week before and been overruled on by the team's financiers. The Constructor's Cup was renamed in his honor that same year. Teams who win it receive a trophy fitted with a piston atop it.",
+      "awardedTo": "The top team each season — Constructor's Championship winner"
+    },
+    "backstoryNote": "Pistone built Carbone's championship cars. The two trophies exist in the same universe — their stories are inseparable. Winning both in the same season is considered the World Racing Grand Slam, an achievement no driver or team has ever managed."
+  },
+  "drivers": [
+    {
+      "player": "Eric Maras",
+      "driver": "Anders Snabb",
+      "carColor": "Silver",
+      "teamName": "FjordFart",
+      "backstory": "Anders grew up a car fanatic. As a child, all he played with were toy cars. He used to race little derby cars with his friends, often throwing massive fits if his cars did not win. He started karting at the age of four, and he won the Swedish Karting Championship as a nine year old. His father and mother both served as an inspiration for his racing career. They both met working as mechanics in a local garage in the outskirts of Stockholm. Anders has competed in many regional race series, including rally car. He is excited for his rookie season in the World Grand Prix Series, and he brings an icy cool persona that sometimes shoots up in flames if he doesn't win."
+    },
+    {
+      "player": "Daniel Yun",
+      "driver": "Count Dragula",
+      "carColor": "Black",
+      "teamName": "Blüd Bath",
+      "backstory": "Hailing from the gloomy forests of Transmissionylvania, Count Dragula was groomed by his father, Baron Victorque of Carovia to continue the legacy of Transmissionylvania's prestigious racing tradition. Dragula is an aggressive, cunning driver who's out for blood and eager to prove himself in the international circuit after dominating the Transmissionylvanian Blood Chalice the last three years running. He enjoys long walks in the graveyard, hates garlic, and donates all his winnings to and volunteers at animal shelters in his hometown"
+    },
+    {
+      "player": "Evan Keane",
+      "driver": "Horace Bauer",
+      "carColor": "Blue",
+      "teamName": "Vroom",
+      "backstory": "Horace raced shopping carts down parking garage ramps for a decade, and F1 scouts figured anyone who could hit 35 mph in a cart with 2 bad wheels deserved a real car."
+    },
+    {
+      "player": "Blake Roberts",
+      "driver": "Jean Girard",
+      "carColor": "Green",
+      "teamName": "Perrier",
+      "backstory": "My name is Jean Girard and I am a racing-car driver just like you except I am from Formula Un. I am the greatest one in the whole world. I have been following your career with great interest, Monsieur Bobby."
+    },
+    {
+      "player": "Dallas Manaker",
+      "driver": "\"Caveman\" Dale Mercer",
+      "carColor": "Yellow",
+      "teamName": "Team Neandrathal",
+      "backstory": "Dale Mercer didn’t choose racing—racing happened to him the same way spilled beer “happens” to a carpet: suddenly, everywhere, and you can’t pretend it didn’t. He “learned” driving from late-night YouTube, a questionable steering wheel he bought off a guy who claimed it was “basically brand new,” and a lifelong belief that the fastest line is the one that makes other people blink first. His crew says he’s smooth; Dale says smooth is for people who don’t enjoy the sound of tires protesting. Every night he straps in like a menace, shouts nonsense at the speedometer, and treats broken tactics as “character building.” Hunt-level swagger, but with more dirt under the nails and less patience for anyone who says, “Maybe lift a bit.”"
+    },
+    {
+      "player": "Rosaria Thea Cali",
+      "driver": "Circe Belladonna",
+      "carColor": "Purple",
+      "teamName": "Piggie",
+      "backstory": "Circe was once peacefully living on her private island, turning rude men into pigs and enjoying a normal, healthy amount of wine, when she discovered an even better hobby: ruining men’s confidence on the racetrack.  Rivals claim her purple car smells faintly of herbs, seawater, and bad decisions. Circe denies using magic during races, though several drivers have mysteriously started oinking after trying to pass her. Her goal this season is simple: win the championship, humiliate the arrogant, and maybe turn one or two team principals into livestock if the mood is right."
+    },
+    {
+      "player": "Dan Newcomer",
+      "driver": "Mr. Pink",
+      "carColor": "Orange",
+      "teamName": "Team No Tip",
+      "backstory": "Mr. Pink was robbing a diamond store when, during the getaway, he ended up on a race track."
+    },
+    {
+      "player": "Kristen Vassalli",
+      "driver": "Chico Suave",
+      "carColor": "Red",
+      "teamName": "Vassalligator",
+      "backstory": "Chico doesn't know how to drive because he is a dog, but it doesn't seem that hard. Plus, his humans said he'd be paid in cheese if he wins, so might as well try! A lack of thumbs may or may not impede his performance, but his crew are an insanely cracked set of hackers and makers and they've been modding up a dog-driveable car to help him cross the finish line - first. Since he's so small, his crew is hopeful their teeny tiny dog-driveable car can shave a ton of weight and zoom past his (speciesist) competitors. "
+    }
+  ],
+  "season": {
+    "seasonNumber": "1",
+    "racesThisSeason": "4",
+    "upgradeSlots": "3",
+    "trackSelectionMethod": "FICC Vote",
+    "midSeasonBreakAfterRace": 2,
+    "legends": "No",
+    "baseTeamBudget": 15000000,
+    "schedule": [
+      {
+        "race": 1,
+        "track": "Mexico"
+      },
+      {
+        "race": 2,
+        "track": "Germany"
+      },
+      {
+        "race": 3,
+        "track": "South Africa"
+      },
+      {
+        "race": 4,
+        "track": "France"
+      }
+    ]
+  },
+  "technicalRegulations": [
+    {
+      "name": "Upgrade Availability",
+      "type": "Restriction",
+      "explanation": "No upgrades from the S, A, and B tiers are allowed - they have not been developed yet",
+      "expiration": "Expires after the 1961 season - a vote will be held by the FICC"
+    },
+    {
+      "name": "Upgrade Availability",
+      "type": "Restriction",
+      "explanation": "Each team can only have three upgrade cards",
+      "expiration": "Expires after the 1961 season - a vote will be held by the FICC"
+    },
+    {
+      "name": "Upgrade Availability",
+      "type": "Restriction",
+      "explanation": "Each team can only have one of each upgrade type",
+      "expiration": "Expires after the 1961 season - a vote will be held by the FICC"
+    },
+    {
+      "name": "Driver Funding",
+      "type": "Funding",
+      "explanation": "Each team is given 15 million dollars to develop their car",
+      "expiration": "Expires after the 1961 season - a vote will be held by the FICC"
+    },
+    {
+      "name": "Mid-Season Catch-up",
+      "type": "Funding",
+      "explanation": "The bottom 3 teams in the standings at the middle of the season break are awarded an additional 3 million in funding and can swap up to two of their upgrades",
+      "expiration": "Expires after the 1961 season - a vote will be held by the FICC"
+    },
+    {
+      "name": "Sponsor Budget",
+      "type": "Funding",
+      "explanation": "Sponsors can fund up to 5 million dollars per team",
+      "expiration": "Expires after the 1961 season - a vote will be held by the FICC"
+    },
+    {
+      "name": "Fuel Type",
+      "type": "Restriction",
+      "explanation": "Only standard fuel is allowed for vehicles - all vehicles must run the same fuel",
+      "expiration": "Expires after the 1961 season - a vote will be held by the FICC"
+    },
+    {
+      "name": "Champion's Gold Wrench Veto",
+      "type": "Benefit",
+      "explanation": "The champion of a season can veto one new FICC rule proposal - this includes changes to an existing rule or a new rule",
+      "expiration": "Expires after the 1962 season - a vote will be held by the FICC"
+    },
+    {
+      "name": "Post-Season Funding Award",
+      "type": "Funding",
+      "explanation": "TBD - after the season, it must be decided how funding will be awarded to teams in the 1962 season",
+      "expiration": "N/A"
+    },
+    {
+      "name": "Team Car Allowance",
+      "type": "Team",
+      "explanation": "Each team can only enter one car for the season",
+      "expiration": "Expires after the 1961 season - a vote will be held by the FICC"
+    },
+    {
+      "name": "Budget Overflow",
+      "type": "Funding",
+      "explanation": "Each team can retain all of the funding they did not spend in this season as a carryover to the next season",
+      "expiration": "Expires after the 1961 season - a vote will be held by the FICC"
+    },
+    {
+      "name": "Sponsor Upgrade Retention",
+      "type": "Sponsor",
+      "explanation": "Sponsors are chosen at the beginning of the season and must be retained through the season - a team's first sponsor card is always their sponsor's card to start a race",
+      "expiration": "Expires after the 1961 season - a vote will be held by the FICC"
+    },
+    {
+      "name": "Backfield Support",
+      "type": "Benefit",
+      "explanation": "The last 4 cars receive an additional heat upgrade card for the next season - this is in addition to the other three upgrades",
+      "expiration": "Expires after the 1961 season - a vote will be held by the FICC"
+    },
+    {
+      "name": "Missed Race",
+      "type": "Scoring",
+      "explanation": "If a driver misses a race, a reserve legend will take their place. The legend will only earn half points rounded down for position",
+      "expiration": "Expires after the 1961 season - a vote will be held by the FICC"
+    }
+  ],
+  "ficcBacklog": {
+    "notes": [
+      "Proposals voted on each off-season by the FICC. Simple majority wins. Champion holds one Golden Wrench veto per off-season.",
+      "Each driver can propose up to one new regulation at the conclusion of the season. Drivers then vote on these rules. Rules must have 6/8 votes to pass",
+      "Existing regulations that need to be renewed will also be voted on. These regulations will also need 6/8 votes to pass."
+    ],
+    "proposals": [
+      {
+        "driverName": "Anders Snabb",
+        "regulationName": "Turbo Ban",
+        "type": "Detriment",
+        "explanation": "Turbos are not allowed",
+        "expiration": "End of 1962 season"
+      },
+      {
+        "driverName": "Count Dragula",
+        "regulationName": "Costume Rule",
+        "type": "Benefit",
+        "explanation": "If your driver comes dressed up in full costume, you get one free boost for the race. Stackable with any other boost. Must have at least top and bottom and one accessory. ",
+        "expiration": "End of 1962 season"
+      },
+      {
+        "driverName": "Horace Bauer",
+        "regulationName": null,
+        "type": null,
+        "explanation": null,
+        "expiration": "End of 1962 season"
+      },
+      {
+        "driverName": "Jean Girard",
+        "regulationName": null,
+        "type": null,
+        "explanation": null,
+        "expiration": "End of 1962 season"
+      },
+      {
+        "driverName": "\"Caveman\" Dale Mercer",
+        "regulationName": null,
+        "type": null,
+        "explanation": null,
+        "expiration": "End of 1962 season"
+      },
+      {
+        "driverName": "Circe Belladonna",
+        "regulationName": "Chicane easment",
+        "type": "Assistance",
+        "explanation": "If you spin out at a chicane, for an additional stress you can pass the corners by only one space.",
+        "expiration": "End of 1962 season"
+      },
+      {
+        "driverName": "Mr. Pink",
+        "regulationName": null,
+        "type": null,
+        "explanation": null,
+        "expiration": "End of 1962 season"
+      },
+      {
+        "driverName": "Chico Suave",
+        "regulationName": "Stress transfer",
+        "type": "Detriment",
+        "explanation": "When you acquire a stress card, roll one die and if you roll a 6, the car in first gets 2 new stress cards. The car that spun out does not acquire any stress",
+        "expiration": "End of 1962 season"
+      },
+      {
+        "driverName": null,
+        "regulationName": "Qualifying round",
+        "type": "Season 2+",
+        "explanation": "Short time-attack before each race sets the starting grid. Pole earns +1 championship point.",
+        "expiration": "Pending"
+      },
+      {
+        "driverName": null,
+        "regulationName": "Sprint race",
+        "type": "Season 2+",
+        "explanation": "One lap only, half points awarded. Run as race 1 of a double-header weekend.",
+        "expiration": "Pending"
+      },
+      {
+        "driverName": null,
+        "regulationName": "Fastest lap point",
+        "type": "Any season",
+        "explanation": "One bonus point to the driver with the fastest individual lap each race.",
+        "expiration": "Pending"
+      },
+      {
+        "driverName": null,
+        "regulationName": "Reverse grid finale",
+        "type": "Season 3+",
+        "explanation": "Final race of the season starts in reverse championship order.",
+        "expiration": "Pending"
+      },
+      {
+        "driverName": null,
+        "regulationName": "Weather cards",
+        "type": "Season 3+",
+        "explanation": "Secret card drawn at race start affects which upgrade types are advantaged that race.",
+        "expiration": "Pending"
+      },
+      {
+        "driverName": null,
+        "regulationName": "Upgrade contraband",
+        "type": "Any season",
+        "explanation": "FICC votes to ban a specific upgrade type for one full season.",
+        "expiration": "Pending"
+      },
+      {
+        "driverName": null,
+        "regulationName": "Legend inclusion",
+        "type": "Any season",
+        "explanation": "A Legend car enters, controlled by last season's last-place finisher.",
+        "expiration": "Pending"
+      },
+      {
+        "driverName": null,
+        "regulationName": "Rookie bonus card",
+        "type": "Any season",
+        "explanation": "New drivers get a one-time 'Rookie Rage' powerful card but score 80% points in season 1.",
+        "expiration": "Pending"
+      },
+      {
+        "driverName": null,
+        "regulationName": "Rival race",
+        "type": "Season 3+",
+        "explanation": "Two drivers with closest head-to-head record compete in a bonus duel race.",
+        "expiration": "Pending"
+      },
+      {
+        "driverName": null,
+        "regulationName": "Driver market",
+        "type": "Season 2+",
+        "explanation": "At season end, drivers may trade one upgrade card by mutual agreement.",
+        "expiration": "Pending"
+      }
+    ]
+  },
+  "standings": {
+    "raceLabels": [
+      "Race 1: Mexico",
+      "Race 2: Germany",
+      "Race 3: South Africa",
+      "Race 4: France"
+    ],
+    "drivers": [
+      {
+        "driver": "Anders Snabb",
+        "team": "FjordFart",
+        "races": [
+          3,
+          2,
+          null,
+          null
+        ],
+        "totalPoints": 10,
+        "position": 2
+      },
+      {
+        "driver": "Count Dragula",
+        "team": "Blüd Bath",
+        "races": [
+          2,
+          4,
+          null,
+          null
+        ],
+        "totalPoints": 9,
+        "position": 3
+      },
+      {
+        "driver": "Horace Bauer",
+        "team": "Vroom",
+        "races": [
+          4,
+          5,
+          null,
+          null
+        ],
+        "totalPoints": 5,
+        "position": 4
+      },
+      {
+        "driver": "Jean Girard",
+        "team": "Perrier",
+        "races": [
+          1,
+          1,
+          null,
+          null
+        ],
+        "totalPoints": 18,
+        "position": 1
+      },
+      {
+        "driver": "\"Caveman\" Dale Mercer",
+        "team": "Team Neandrathal",
+        "races": [
+          7,
+          3,
+          null,
+          null
+        ],
+        "totalPoints": 4,
+        "position": 5
+      },
+      {
+        "driver": "Circe Belladonna",
+        "team": "Piggie",
+        "races": [
+          6,
+          8,
+          null,
+          null
+        ],
+        "totalPoints": 1,
+        "position": 7
+      },
+      {
+        "driver": "Mr. Pink",
+        "team": "Team No Tip",
+        "races": [
+          5,
+          7,
+          null,
+          null
+        ],
+        "totalPoints": 2,
+        "position": 6
+      },
+      {
+        "driver": "Chico Suave",
+        "team": "Vassalligator",
+        "races": [
+          8,
+          6,
+          null,
+          null
+        ],
+        "totalPoints": 1,
+        "position": 7
+      }
+    ],
+    "pointsTable": [
+      {
+        "position": 1,
+        "points": 9
+      },
+      {
+        "position": 2,
+        "points": 6
+      },
+      {
+        "position": 3,
+        "points": 4
+      },
+      {
+        "position": 4,
+        "points": 3
+      },
+      {
+        "position": 5,
+        "points": 2
+      },
+      {
+        "position": 6,
+        "points": 1
+      },
+      {
+        "position": 7,
+        "points": 0
+      },
+      {
+        "position": 8,
+        "points": 0
+      }
+    ]
+  },
+  "inventory": {
+    "upgrades": [
+      {
+        "type": "4 Wheel Drive",
+        "partNumber": 1,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "A",
+        "cost": 15000000
+      },
+      {
+        "type": "4 Wheel Drive",
+        "partNumber": 2,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "S",
+        "cost": 18000000
+      },
+      {
+        "type": "4 Wheel Drive",
+        "partNumber": 3,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 7000000
+      },
+      {
+        "type": "Body",
+        "partNumber": 4,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 6000000
+      },
+      {
+        "type": "Body",
+        "partNumber": 5,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 10000000
+      },
+      {
+        "type": "Body",
+        "partNumber": 6,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "D",
+        "cost": 4000000
+      },
+      {
+        "type": "Brakes",
+        "partNumber": 7,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "F",
+        "cost": 1000000
+      },
+      {
+        "type": "Brakes",
+        "partNumber": 8,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 6500000
+      },
+      {
+        "type": "Brakes",
+        "partNumber": 9,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 6500000
+      },
+      {
+        "type": "Brakes",
+        "partNumber": 10,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 10000000
+      },
+      {
+        "type": "Cooling System",
+        "partNumber": 11,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 10000000
+      },
+      {
+        "type": "Cooling System",
+        "partNumber": 12,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 7500000
+      },
+      {
+        "type": "Cooling System",
+        "partNumber": 13,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 6500000
+      },
+      {
+        "type": "RPM",
+        "partNumber": 14,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 10000000
+      },
+      {
+        "type": "RPM",
+        "partNumber": 15,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 10000000
+      },
+      {
+        "type": "RPM",
+        "partNumber": 16,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 6500000
+      },
+      {
+        "type": "Heat",
+        "partNumber": 17,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "x",
+        "cost": "x"
+      },
+      {
+        "type": "Body",
+        "partNumber": 18,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 6000000
+      },
+      {
+        "type": "Body",
+        "partNumber": 19,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 7000000
+      },
+      {
+        "type": "Body",
+        "partNumber": 20,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 7000000
+      },
+      {
+        "type": "Cooling System",
+        "partNumber": 21,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 10000000
+      },
+      {
+        "type": "Fuel",
+        "partNumber": 22,
+        "effect": "2 [Salvage 2]",
+        "countAvailable": 2,
+        "tier": "D",
+        "cost": 5000000
+      },
+      {
+        "type": "Fuel",
+        "partNumber": 23,
+        "effect": "\"+ [1 Cooldown, Salvage 2] \"",
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 7500000
+      },
+      {
+        "type": "Gas Pedal",
+        "partNumber": 24,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 6000000
+      },
+      {
+        "type": "Gas Pedal",
+        "partNumber": 25,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 6500000
+      },
+      {
+        "type": "Gas Pedal",
+        "partNumber": 26,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 9000000
+      },
+      {
+        "type": "Gas Pedal",
+        "partNumber": 27,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 7000000
+      },
+      {
+        "type": "Gas Pedal",
+        "partNumber": 28,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 7500000
+      },
+      {
+        "type": "RPM",
+        "partNumber": 29,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 11000000
+      },
+      {
+        "type": "RPM",
+        "partNumber": 30,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 6000000
+      },
+      {
+        "type": "RPM",
+        "partNumber": 31,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 11000000
+      },
+      {
+        "type": "Suspension",
+        "partNumber": 32,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 8000000
+      },
+      {
+        "type": "Suspension",
+        "partNumber": 33,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 10000000
+      },
+      {
+        "type": "Suspension",
+        "partNumber": 34,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 11000000
+      },
+      {
+        "type": "Suspension",
+        "partNumber": 35,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 8000000
+      },
+      {
+        "type": "Tires",
+        "partNumber": 36,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "D",
+        "cost": 2000000
+      },
+      {
+        "type": "Tires",
+        "partNumber": 37,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "D",
+        "cost": 5000000
+      },
+      {
+        "type": "Tires",
+        "partNumber": 38,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "D",
+        "cost": 5000000
+      },
+      {
+        "type": "Tires",
+        "partNumber": 39,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "D",
+        "cost": 2000000
+      },
+      {
+        "type": "Tires",
+        "partNumber": 40,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 7500000
+      },
+      {
+        "type": "Tires",
+        "partNumber": 41,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 8000000
+      },
+      {
+        "type": "Turbo Charger",
+        "partNumber": 42,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "D",
+        "cost": 5000000
+      },
+      {
+        "type": "Turbo Charger",
+        "partNumber": 43,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "A",
+        "cost": 15000000
+      },
+      {
+        "type": "Wings",
+        "partNumber": 44,
+        "effect": "4 [1 Heat, Scrap 2, +2 Corner Speed Limit]",
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 11000000
+      },
+      {
+        "type": "Wings",
+        "partNumber": 45,
+        "effect": "3 [1 Heat, Scrap 2, +2 Corner Speed Limit]",
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 10000000
+      },
+      {
+        "type": "Wings",
+        "partNumber": 46,
+        "effect": "6 [2 Heat, +3 Corner Speed Limit] ",
+        "countAvailable": 2,
+        "tier": "D",
+        "cost": 5000000
+      },
+      {
+        "type": "4 Wheel Drive",
+        "partNumber": 47,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 12000000
+      },
+      {
+        "type": "Heat",
+        "partNumber": 48,
+        "effect": null,
+        "countAvailable": 2,
+        "tier": "x",
+        "cost": "x"
+      },
+      {
+        "type": "Air Intake",
+        "partNumber": 49,
+        "effect": "1 [Super Cool 1, Salvage 4, -1 Corner Speed Limit]",
+        "countAvailable": 2,
+        "tier": "D",
+        "cost": 4000000
+      },
+      {
+        "type": "Air Intake",
+        "partNumber": 50,
+        "effect": "0 [Super Cool 1, +1 Slipstream, Can discard 1 stress]",
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 11000000
+      },
+      {
+        "type": "Air Intake",
+        "partNumber": 51,
+        "effect": "1 [Super Cool 1, 1 Cooldown, Scrap 1]",
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 10000000
+      },
+      {
+        "type": "Air Intake",
+        "partNumber": 52,
+        "effect": "3 [Super Cool 1, Scrap 3]",
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 9000000
+      },
+      {
+        "type": "Air Intake",
+        "partNumber": 53,
+        "effect": "4 [Super Cool 1, Scrap 4]",
+        "countAvailable": 2,
+        "tier": "A",
+        "cost": 14000000
+      },
+      {
+        "type": "Air Intake",
+        "partNumber": 54,
+        "effect": "\"+ [Refresh, Super Cool 1, -1 Corner Speed Limit]\"",
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 8000000
+      },
+      {
+        "type": "Front Wing",
+        "partNumber": 55,
+        "effect": "\"+ [Draft 3] \"",
+        "countAvailable": 2,
+        "tier": "A",
+        "cost": 14000000
+      },
+      {
+        "type": "Front Wing",
+        "partNumber": 56,
+        "effect": "0 [Draft 1, Direct Play, Refresh] ",
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 8000000
+      },
+      {
+        "type": "Front Wing",
+        "partNumber": 57,
+        "effect": "2 [Draft 2, Salvage 2, Scrap 5]",
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 11000000
+      },
+      {
+        "type": "Front Wing",
+        "partNumber": 58,
+        "effect": "3 [Draft 1, +1 Corner Speed Limit, Scrap 3] ",
+        "countAvailable": 2,
+        "tier": "A",
+        "cost": 15000000
+      },
+      {
+        "type": "Front Wing",
+        "partNumber": 59,
+        "effect": "4 [Draft 1, Refresh, Scrap 4] ",
+        "countAvailable": 2,
+        "tier": "S",
+        "cost": 21000000
+      },
+      {
+        "type": "Front Wing",
+        "partNumber": 60,
+        "effect": "6 [Draft 2, 1 Heat]",
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 7500000
+      },
+      {
+        "type": "Sliding Skirts",
+        "partNumber": 61,
+        "effect": "\"+ [Extra Slipstream, +1 Corner Speed Limit, Can discard 1 stress]\"",
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 9000000
+      },
+      {
+        "type": "Sliding Skirts",
+        "partNumber": 62,
+        "effect": "1 [Extra Slipstream, +1 Slipstream]",
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 10000000
+      },
+      {
+        "type": "Sliding Skirts",
+        "partNumber": 63,
+        "effect": "1 [Extra Slipstream, Refresh]",
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 11000000
+      },
+      {
+        "type": "Sliding Skirts",
+        "partNumber": 64,
+        "effect": "2 [Extra Slipstream, Direct Play] ",
+        "countAvailable": 2,
+        "tier": "B",
+        "cost": 11000000
+      },
+      {
+        "type": "Sliding Skirts",
+        "partNumber": 65,
+        "effect": "2/3 [Extra Slipstream] ",
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 5000000
+      },
+      {
+        "type": "Sliding Skirts",
+        "partNumber": 66,
+        "effect": "4/6 [Extra Slipstream, 1 Heat]",
+        "countAvailable": 2,
+        "tier": "C",
+        "cost": 6500000
+      }
+    ],
+    "sponsors": [
+      {
+        "name": "Eole Wing Industries",
+        "type": "Car",
+        "countAvailable": 7,
+        "funding": 1000000
+      },
+      {
+        "name": "Fredo&F",
+        "type": "Car",
+        "countAvailable": 7,
+        "funding": 3000000
+      },
+      {
+        "name": "Dramdo",
+        "type": "Car",
+        "countAvailable": 7,
+        "funding": 3000000
+      },
+      {
+        "name": "Lord & CO",
+        "type": "Car",
+        "countAvailable": 7,
+        "funding": 2000000
+      },
+      {
+        "name": "De Angeli",
+        "type": "Car",
+        "countAvailable": 7,
+        "funding": 4000000
+      },
+      {
+        "name": "E. Mercury Air System",
+        "type": "Car",
+        "countAvailable": 7,
+        "funding": 2000000
+      },
+      {
+        "name": "Thunder Valley Aero",
+        "type": "Car",
+        "countAvailable": 7,
+        "funding": 3000000
+      },
+      {
+        "name": "Aperault",
+        "type": "Car",
+        "countAvailable": 7,
+        "funding": 5000000
+      },
+      {
+        "name": "Moquette",
+        "type": "Apparel",
+        "countAvailable": 7,
+        "funding": 3000000
+      },
+      {
+        "name": "Beewee",
+        "type": "Apparel",
+        "countAvailable": 7,
+        "funding": 2000000
+      },
+      {
+        "name": "Noctie",
+        "type": "Apparel",
+        "countAvailable": 7,
+        "funding": 2000000
+      }
+    ]
+  },
+  "upgradeTracker": {
+    "rule": "Rule: One upgrade per type only (one Engine, one Tires, one Aero, one Cooling, one Fuel System, one Chassis). No stacking.",
+    "entries": [
+      {
+        "driver": "Anders Snabb",
+        "sponsor": "Noctie",
+        "budget": 17000000,
+        "upgrades": [
+          60,
+          42,
+          36
+        ],
+        "modification": 0,
+        "remainingBudget": 2500000
+      },
+      {
+        "driver": "Count Dragula",
+        "sponsor": "E. Mercury Air System",
+        "budget": 16000000,
+        "upgrades": [
+          13,
+          37,
+          49
+        ],
+        "modification": -1000000,
+        "remainingBudget": 500000
+      },
+      {
+        "driver": "Horace Bauer",
+        "sponsor": "Beewee",
+        "budget": 17000000,
+        "upgrades": [
+          38,
+          3,
+          46
+        ],
+        "modification": 0,
+        "remainingBudget": 0
+      },
+      {
+        "driver": "Jean Girard",
+        "sponsor": "Lord & CO",
+        "budget": 17000000,
+        "upgrades": [
+          27,
+          38,
+          42
+        ],
+        "modification": 0,
+        "remainingBudget": 0
+      },
+      {
+        "driver": "\"Caveman\" Dale Mercer",
+        "sponsor": "Dramdo",
+        "budget": 18000000,
+        "upgrades": [
+          40,
+          46,
+          6
+        ],
+        "modification": 0,
+        "remainingBudget": 1500000
+      },
+      {
+        "driver": "Circe Belladonna",
+        "sponsor": "De Angeli",
+        "budget": 23000000,
+        "upgrades": [
+          27,
+          60,
+          36
+        ],
+        "modification": 4000000,
+        "remainingBudget": 6500000
+      },
+      {
+        "driver": "Mr. Pink",
+        "sponsor": "Eole Wing Industries",
+        "budget": 19000000,
+        "upgrades": [
+          66,
+          18,
+          25
+        ],
+        "modification": 3000000,
+        "remainingBudget": 0
+      },
+      {
+        "driver": "Chico Suave",
+        "sponsor": "Fredo&F",
+        "budget": 21000000,
+        "upgrades": [
+          6,
+          7,
+          39
+        ],
+        "modification": 3000000,
+        "remainingBudget": 14000000
+      }
+    ],
+    "legend": [
+      {
+        "type": "Turbo Charger",
+        "description": "Speed and acceleration upgrades"
+      },
+      {
+        "type": "Tires",
+        "description": "Grip, handling, and wear management"
+      },
+      {
+        "type": "Aerodynamics",
+        "description": "Downforce and drag reduction"
+      },
+      {
+        "type": "Cooling",
+        "description": "Heat management, prevents overheating"
+      },
+      {
+        "type": "Fuel System",
+        "description": "Fuel efficiency and range"
+      },
+      {
+        "type": "Chassis",
+        "description": "Structural rigidity and weight"
+      }
+    ]
+  },
+  "hallOfFame": {
+    "seasonLog": [
+      {
+        "season": 1,
+        "champion": null,
+        "constructorChampion": null
+      },
+      {
+        "season": 2,
+        "champion": null,
+        "constructorChampion": null
+      },
+      {
+        "season": 3,
+        "champion": null,
+        "constructorChampion": null
+      },
+      {
+        "season": 4,
+        "champion": null,
+        "constructorChampion": null
+      },
+      {
+        "season": 5,
+        "champion": null,
+        "constructorChampion": null
+      },
+      {
+        "season": 6,
+        "champion": null,
+        "constructorChampion": null
+      },
+      {
+        "season": 7,
+        "champion": null,
+        "constructorChampion": null
+      },
+      {
+        "season": 8,
+        "champion": null,
+        "constructorChampion": null
+      },
+      {
+        "season": 9,
+        "champion": null,
+        "constructorChampion": null
+      },
+      {
+        "season": 10,
+        "champion": null,
+        "constructorChampion": null
+      }
+    ],
+    "missedRaceLog": [
+      {
+        "season": 1,
+        "race": "",
+        "driver": null,
+        "legendSub": "",
+        "pointsEarned": null,
+        "note": ""
+      }
+    ]
+  },
+  "offSeasonBudget": {
+    "regulations": [
+      {
+        "tier": "Champion (1)",
+        "upgradeExchange": "May exchange one upgrade card",
+        "heatCards": "No extra heat cards",
+        "winnings": 10000000
+      },
+      {
+        "tier": "Top half (2-4)",
+        "upgradeExchange": "May exchange one upgrade card",
+        "heatCards": "No extra heat cards",
+        "winnings": "2 - $7,000,000\n3 - $6,000,000\n4 - $5,000,000"
+      },
+      {
+        "tier": "Bottom half (5-7)",
+        "upgradeExchange": "May exchange two upgrade cards",
+        "heatCards": "Gets one extra heat upgrade card for next season",
+        "winnings": 2000000
+      },
+      {
+        "tier": "Last place (8)",
+        "upgradeExchange": "Can exchange all or any number of upgrade cards",
+        "heatCards": "Gets one extra heat upgrade card for next season",
+        "winnings": 0
+      }
+    ],
+    "driverTracker": [],
+    "midSeasonWindow": []
+  }
+}

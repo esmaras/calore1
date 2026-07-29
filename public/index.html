@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Calore 1 — Campaign Tracker</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="flag">🏁</span>
+    <div>
+      <h1 id="league-name">Calore 1</h1>
+      <div id="league-sub" class="muted"></div>
+    </div>
+  </div>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <button class="btn small" id="save-now-btn">Save now</button>
+    <div class="save-state" id="save-state">Loading…</div>
+  </div>
+</header>
+
+<nav class="tabs" id="tabs"></nav>
+
+<main id="tab-content" class="tab-content"></main>
+
+<template id="tpl-nothing">
+  <p class="muted">Nothing here yet.</p>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>
