@@ -414,6 +414,8 @@ footer.hint {
 .bento-view-full { display: none; margin-top: 16px; }
 .bento-card.expanded .bento-view-full { display: block; }
 
+.bento-driver-list { display: flex; flex-direction: column; gap: 8px; }
+
 /* Gradient border that grows in from the card's edge on hover — a ring
    whose thickness (the gap between the outer edge and the masked-out
    inner hole) animates from 0 to a few px, reading as "closing inward". */
@@ -441,7 +443,25 @@ footer.hint {
   .bento-grid { flex-direction: column; min-height: 0; }
   .bento-expanded-wrap { flex: none; }
   .bento-collapsed-wrap { flex: none; }
-  .bento-collapsed-wrap .bento-card { flex: none; height: 220px; }
+  /* Collapsed cards show just their title until tapped — no room to
+     preview content usefully at phone width, and no hover to reveal it
+     progressively, so skip straight to "tap to see more." Height follows
+     the title alone rather than the old fixed 220px built for content. */
+  .bento-collapsed-wrap .bento-card {
+    flex: none;
+    height: auto;
+    min-height: 0;
+    padding: 16px 20px;
+  }
+  .bento-collapsed-wrap .bento-card h3 { margin: 0; }
+  .bento-collapsed-wrap .bento-card > *:not(h3) { display: none; }
+  /* No :hover on touch devices — the gradient border is the only "tap to
+     expand" affordance left once content is hidden, so it has to be
+     visible up front rather than waiting for a hover that will never fire. */
+  .bento-card:not(.expanded)::before {
+    opacity: 1;
+    padding: 3px;
+  }
 }
 
 .hamburger-btn {

@@ -439,7 +439,13 @@ function renderStandings(container) {
     ...labels.map((l, i) => h("th", {}, l || `Race ${i + 1}`)),
     h("th", {}, "Total"), h("th", {}, "Pos"))));
   const tbody = h("tbody");
-  for (const d of DATA.standings.drivers) {
+  // Sorted by current standing (1st place first), not roster order — since
+  // this whole tab already re-renders from scratch after every race-result
+  // or points-table edit (see the numberInput onChange calls below), this
+  // keeps the table re-sorted live as soon as an edit changes anyone's
+  // position, with no separate "resort" step needed.
+  const sortedDrivers = [...DATA.standings.drivers].sort((a, b) => a.position - b.position);
+  for (const d of sortedDrivers) {
     const tr = h("tr");
     tr.appendChild(h("td", {}, driverBadge(d.driver)));
     tr.appendChild(h("td", {}, d.team));
@@ -1501,7 +1507,11 @@ function buildStandingsSummary() {
 }
 
 function buildDriversSummary() {
-  const list = h("div", { style: "display:flex; flex-direction:column; gap:8px;" });
+  // A CSS class, not an inline style: the mobile bento layout hides a
+  // collapsed card's content with `.bento-card > *:not(h3) { display:
+  // none }`, and an inline style on this element would out-specificity
+  // that rule regardless of what the stylesheet says.
+  const list = h("div", { class: "bento-driver-list" });
   DATA.drivers.forEach((d) => {
     const row = h("div", { style: "display:flex; align-items:center; justify-content:space-between; gap:10px;" });
     row.appendChild(driverBadge(d.driver));
@@ -1724,8 +1734,13 @@ function renderHome(container) {
     cardEls.push([id, card]);
   });
 
-  placeCards();
+  // grid must be attached to the document before placeCards() runs — it
+  // calls syncBentoHeights(), which measures expandedWrap.offsetHeight;
+  // measuring a detached element always reads 0, which is why this bug
+  // only showed up on first load (later calls happen after the grid is
+  // already live, from a card's click handler).
   container.appendChild(grid);
+  placeCards();
 }
 
 const TABS = [
@@ -1753,7 +1768,11 @@ function goToTab(tabId) {
 function renderTabs() {
   const nav = document.getElementById("tabs");
   nav.innerHTML = "";
-  for (const t of TABS) {
+  // "My Account" needs a real logged-in account — anonymous visitors never
+  // see it (and can't land on it: its id can't come from anywhere else).
+  const visibleTabs = CURRENT_USER ? TABS : TABS.filter((t) => t.id !== "profile");
+  if (!CURRENT_USER && activeTab === "profile") activeTab = "home";
+  for (const t of visibleTabs) {
     const btn = h("button", { class: "tab-btn" + (t.id === activeTab ? " active" : "") }, t.label);
     btn.addEventListener("click", () => goToTab(t.id));
     nav.appendChild(btn);
@@ -1867,12 +1886,17 @@ function renderLoginForm() {
         submitBtn.disabled = false;
         return;
       }
-      CURRENT_USER = body;
       if (body.mustChangePassword) {
+        CURRENT_USER = body;
         showAuthScreen(renderChangePasswordForm());
       } else {
-        showApp();
-        await loadAppData();
+        // Reload rather than calling loadAppData() directly: this app can
+        // now show the anonymous read-only view before any login, which
+        // already ran loadAppData() once — calling it again here would
+        // double up every event listener it wires (logout button, hamburger
+        // nav, etc.). A reload keeps "loadAppData runs once per page load"
+        // true regardless of which path got there.
+        window.location.reload();
       }
     } catch (err) {
       errorEl.textContent = "Could not reach the server.";
@@ -1922,8 +1946,10 @@ function renderChangePasswordForm() {
         submitBtn.disabled = false;
         return;
       }
-      showApp();
-      await loadAppData();
+      // See the matching comment in renderLoginForm — reload instead of
+      // calling loadAppData() directly, so it can't run twice in one page
+      // lifetime now that an anonymous view can precede login.
+      window.location.reload();
     } catch (err) {
       errorEl.textContent = "Could not reach the server.";
       submitBtn.disabled = false;
@@ -1969,15 +1995,29 @@ async function loadAppData() {
   await refreshData();
   document.getElementById("league-name").textContent = DATA.lore.leagueName || "Calore 1";
   document.getElementById("league-sub").textContent = `${DATA.lore.governingBody || ""}`;
-  document.getElementById("whoami").textContent = CURRENT_USER
-    ? `${CURRENT_USER.username} (${CURRENT_USER.role})`
-    : "";
+
+  const authBtn = document.getElementById("logout-btn");
+  if (CURRENT_USER) {
+    document.getElementById("whoami").textContent = `${CURRENT_USER.username} (${CURRENT_USER.role})`;
+    authBtn.textContent = "Log out";
+    authBtn.addEventListener("click", async () => {
+      await fetch("/api/auth/logout", { method: "POST" });
+      window.location.reload();
+    });
+  } else {
+    // Nothing is editable without an account (isAdmin()/isSelfOrAdmin()
+    // are both false for a null CURRENT_USER), so there's nothing to
+    // save — hide the save controls rather than show a button that would
+    // always be a no-op.
+    document.getElementById("whoami").textContent = "Viewing as guest";
+    document.getElementById("save-now-btn").style.display = "none";
+    document.getElementById("save-state").style.display = "none";
+    authBtn.textContent = "Log in";
+    authBtn.addEventListener("click", () => showAuthScreen(renderLoginForm()));
+  }
+
   setSaveState("saved");
   document.getElementById("save-now-btn").addEventListener("click", () => flushAllSaves());
-  document.getElementById("logout-btn").addEventListener("click", async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.reload();
-  });
   document.getElementById("hamburger-btn").addEventListener("click", toggleMobileNav);
   document.getElementById("nav-backdrop").addEventListener("click", closeMobileNav);
   document.querySelector(".brand").addEventListener("click", () => goToTab("home"));
@@ -1987,14 +2027,20 @@ async function loadAppData() {
 
 async function init() {
   const res = await fetch("/api/auth/me");
-  if (!res.ok) {
-    showAuthScreen(renderLoginForm());
-    return;
-  }
-  CURRENT_USER = await res.json();
-  if (CURRENT_USER.mustChangePassword) {
-    showAuthScreen(renderChangePasswordForm());
-    return;
+  if (res.ok) {
+    CURRENT_USER = await res.json();
+    if (CURRENT_USER.mustChangePassword) {
+      showAuthScreen(renderChangePasswordForm());
+      return;
+    }
+  } else {
+    // Not logged in isn't a wall anymore — GET /api/data is public, so the
+    // app shell renders read-only for anonymous visitors (isAdmin() and
+    // isSelfOrAdmin() both already treat a null CURRENT_USER as "no
+    // permissions", which is what makes every edit control across the app
+    // fall back to its read-only rendering automatically). Logging in is
+    // still available via the topbar's Log in button — see loadAppData().
+    CURRENT_USER = null;
   }
   showApp();
   await loadAppData();

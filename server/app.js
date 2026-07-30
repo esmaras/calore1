@@ -24,10 +24,17 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 
 app.use("/api/auth", authRoutes);
 
+// GET /api/data is intentionally public — anonymous visitors get the same
+// read-only view a logged-in driver already sees on admin-managed
+// sections (isAdmin()/isSelfOrAdmin() on the client both treat a missing
+// session as "no permissions", so nothing editable renders for them).
+// Every other route below still requires a logged-in session — this file
+// has no write routes (see server/routes/data.routes.js).
+app.use("/api/data", dataRoutes);
+
 // Everything under /api past this point requires a logged-in session.
 // Per-route requireAdmin / requireSelfOrAdmin checks (inside each router)
 // layer on top of this for who can write what.
-app.use("/api/data", requireAuth, dataRoutes);
 app.use("/api/drivers", requireAuth, driversRoutes);
 app.use("/api/standings", requireAuth, standingsRoutes);
 app.use("/api/upgrade-tracker", requireAuth, upgradeTrackerRoutes);
