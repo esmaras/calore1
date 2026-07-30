@@ -1452,9 +1452,38 @@ function renderTabs() {
   nav.innerHTML = "";
   for (const t of TABS) {
     const btn = h("button", { class: "tab-btn" + (t.id === activeTab ? " active" : "") }, t.label);
-    btn.addEventListener("click", () => { activeTab = t.id; renderTabs(); renderActive(); });
+    btn.addEventListener("click", () => {
+      activeTab = t.id;
+      renderTabs();
+      renderActive();
+      closeMobileNav();
+    });
     nav.appendChild(btn);
   }
+}
+
+// ---------- Mobile nav (hamburger sidebar) ----------
+// The topbar's height isn't fixed (it wraps to two rows on narrow phones),
+// so the sidebar's top offset is read from the real DOM rather than
+// guessed at in CSS — recomputed on load and on resize/orientation change.
+function syncTopbarHeight() {
+  const topbar = document.querySelector(".topbar");
+  if (!topbar) return;
+  document.documentElement.style.setProperty("--topbar-h", `${topbar.offsetHeight}px`);
+}
+window.addEventListener("resize", syncTopbarHeight);
+document.querySelector(".brand .logo img")?.addEventListener("load", syncTopbarHeight);
+
+function closeMobileNav() {
+  document.getElementById("tabs").classList.remove("open");
+  document.getElementById("nav-backdrop").classList.remove("open");
+  document.getElementById("hamburger-btn").setAttribute("aria-expanded", "false");
+}
+
+function toggleMobileNav() {
+  const isOpen = document.getElementById("tabs").classList.toggle("open");
+  document.getElementById("nav-backdrop").classList.toggle("open", isOpen);
+  document.getElementById("hamburger-btn").setAttribute("aria-expanded", String(isOpen));
 }
 
 function renderActive() {
@@ -1645,7 +1674,10 @@ async function loadAppData() {
     await fetch("/api/auth/logout", { method: "POST" });
     window.location.reload();
   });
+  document.getElementById("hamburger-btn").addEventListener("click", toggleMobileNav);
+  document.getElementById("nav-backdrop").addEventListener("click", closeMobileNav);
   renderTabs();
+  syncTopbarHeight();
 }
 
 async function init() {
