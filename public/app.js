@@ -1297,7 +1297,7 @@ function renderHallOfFame(container) {
   container.appendChild(panel);
 
   container.appendChild(genericTrackerPanel(
-    "Missed Race Log",
+    "Hall of Lame (Missed Race Log)",
     DATA.hallOfFame.missedRaceLog,
     [
       { key: "season", label: "Season", type: "number" },
