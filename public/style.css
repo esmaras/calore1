@@ -45,7 +45,12 @@ h1, h2, h3 { font-weight: 700; letter-spacing: 0.2px; }
 }
 
 .brand { display: flex; align-items: center; gap: 14px; }
-.brand .logo { font-size: 28px; }
+.brand .logo img { 
+  max-width: 100%;
+  width: 70px;
+  height: 55px;
+  height: auto; 
+}
 .brand h1 { margin: 0; font-size: 1.4rem; }
 .brand #league-sub { margin-top: 2px; }
 
