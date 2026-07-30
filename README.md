@@ -131,6 +131,32 @@ The first `make deploy` is what actually brings the App Runner service up
 SSM secret existing — both are true by the time `make deploy` reaches
 `terraform apply`). After that, `make deploy` just ships new code.
 
+**Custom domain** (`calore1.com`, registered via Route 53): if the custom domain
+association doesn't exist yet — first-ever setup, or after a `make tf-bootstrap`
+accidentally tore it down (see below) — run `make tf-apply-domain` once before
+`make tf-apply`. Without it, `make tf-apply` fails immediately with an "Invalid
+for_each argument" error and never creates anything: `aws_route53_record.app_cert_validation`
+loops over `aws_apprunner_custom_domain_association.app`'s
+`certificate_validation_records` output, which isn't known until that resource
+exists, and a plain `terraform plan` tries to size that loop while planning the
+*whole* config — association included — so it errors out before writing a plan
+file at all. `tf-apply-domain` uses `-target` to create just the association
+(and, transitively, the App Runner service it depends on) first, so its outputs
+become known values in state; `make tf-apply` afterward picks up everything
+else, DNS records included.
+
+**Careful with `make tf-bootstrap` after initial setup** — it always passes
+`app_image=""`, which isn't just "skip creating App Runner," it's "the App
+Runner service, the custom domain association, and their DNS records should
+not exist." Since all of those are gated on `app_image` being non-empty, running
+`tf-bootstrap` again on an already-running deployment **destroys** all of them.
+It's only meant for the very first apply, before anything else exists — never
+run it again afterward. Recovering from an accidental run: check
+`aws route53 list-resource-record-sets` for orphaned `A`/`CNAME` records left
+over from the destroyed association (Terraform's destroy can leave these behind
+without deleting them, and they'll block recreation with "record already
+exists") and delete them by hand before re-running `tf-apply-domain`.
+
 Other useful targets: `make logs` (tail the running app's logs), `make url`
 (print the deployed URL), `make tf-plan`/`make tf-destroy`. Run `make help`
 for the full list. All of these accept `ENV=prod` (default is `dev`) to

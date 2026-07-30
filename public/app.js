@@ -739,26 +739,6 @@ function renderUpgradeTracker(container) {
   wrap.appendChild(table);
   panel.appendChild(wrap);
   container.appendChild(panel);
-
-  const panel2 = h("div", { class: "panel" });
-  panel2.appendChild(h("h2", {}, "Upgrade Type Legend"));
-  const table2 = h("table");
-  const tbody2 = h("tbody");
-  DATA.upgradeTracker.legend.forEach((row) => {
-    const tr = h("tr");
-    if (allowed) {
-      const tdType = h("td"); tdType.appendChild(textInput(row.type, (v) => { row.type = v; saveUpgradeLegend(); }));
-      const tdDesc = h("td"); tdDesc.appendChild(textInput(row.description, (v) => { row.description = v; saveUpgradeLegend(); }));
-      tr.appendChild(tdType); tr.appendChild(tdDesc);
-    } else {
-      tr.appendChild(h("td", {}, row.type));
-      tr.appendChild(h("td", {}, row.description));
-    }
-    tbody2.appendChild(tr);
-  });
-  table2.appendChild(tbody2);
-  panel2.appendChild(table2);
-  container.appendChild(panel2);
 }
 
 // ---------- Inventory ----------

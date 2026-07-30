@@ -35,6 +35,7 @@ help:
 	@echo "    Prereq: AWS credentials configured (aws configure), and .env.dev filled in."
 	@echo "    make tf-init         terraform init (run once per workspace)"
 	@echo "    make tf-bootstrap    First-ever apply (before any image is pushed): ECR + DynamoDB + IAM only"
+	@echo "    make tf-apply-domain Run once when the custom domain association doesn't exist yet (see infra/main.tf)"
 	@echo "    make tf-plan         terraform plan"
 	@echo "    make tf-apply        terraform apply"
 	@echo "    make tf-destroy      terraform destroy (tears down all infra)"
@@ -139,6 +140,25 @@ tf-plan:
 .PHONY: tf-apply
 tf-apply: tf-plan
 	cd $(TF_DIR) && terraform apply --auto-approve tfplan
+
+# One-time (or whenever the custom domain association has been destroyed
+# and needs recreating, e.g. after tf-bootstrap): aws_route53_record.app_cert_validation
+# uses for_each over aws_apprunner_custom_domain_association.app's
+# certificate_validation_records output, which isn't known until that
+# resource exists. A plain `terraform plan` errors out before it can even
+# write a plan file — `make tf-apply` never gets as far as creating
+# anything — because Terraform tries to size that for_each while planning
+# the *whole* config, association included. `-target` scopes the plan to
+# just the association, sidestepping the problem; run this once, then
+# `make tf-apply` normally to pick up everything else (now that the
+# association's outputs are known values sitting in state).
+.PHONY: tf-apply-domain
+tf-apply-domain:
+	cd $(TF_DIR) && terraform apply --auto-approve \
+		-target='aws_apprunner_custom_domain_association.app' \
+		-var environment=$(ENV) \
+		-var app_image=$(ECR_BASE)/$(REPO):$(IMAGE_TAG) \
+		-var session_secret_ssm_arn=$(SESSION_SECRET_SSM_ARN)
 
 .PHONY: tf-destroy
 tf-destroy:
