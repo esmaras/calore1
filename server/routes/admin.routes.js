@@ -67,6 +67,18 @@ router.put("/sponsors/:sponsorId", async (req, res) => {
   res.json(updated);
 });
 
+// ---------- Users: full account list ----------
+// Never includes passwordHash — this is a read-only overview for the admin
+// panel, not an auth-debugging endpoint.
+router.get("/users", async (req, res) => {
+  const all = await repo.getAll();
+  const users = all
+    .filter((i) => i.itemType === itemTypes.USER)
+    .map((u) => ({ username: u.username, role: u.role, driverId: u.driverId ?? null, mustChangePassword: !!u.mustChangePassword }))
+    .sort((a, b) => (a.role === b.role ? a.username.localeCompare(b.username) : a.role === "admin" ? -1 : 1));
+  res.json(users);
+});
+
 // ---------- Drivers: create new + reset password ----------
 // A new driver needs both a DRIVER record and a USER login created
 // together — created via one transaction so we never end up with one
@@ -125,6 +137,34 @@ router.post("/drivers", async (req, res) => {
   }
 
   res.json({ driver: { player: driverItem.player, driver: driverItem.driver, teamName: driverItem.teamName, carColor: null, backstory: driverItem.backstory, driverId }, username: driverId, tempPassword });
+});
+
+// Deletes the driver's roster entry and their login together — leaving
+// either behind would strand a login nobody can attach to a driver, or a
+// driver nobody can log in as. Also frees their car color claim, if any,
+// so it becomes available to other drivers again. Deliberately does NOT
+// clean up their historical STANDINGS/UPGRADETRACKER/FICC_PROPOSAL rows
+// (per-season, keyed by driverId) — those simply stop appearing anywhere
+// once the DRIVER item is gone (assembleData only ever iterates driverIds
+// from existing DRIVER items), so leaving them is harmless, and deleting
+// them would mean scanning and removing rows across every season.
+router.delete("/drivers/:driverId", async (req, res) => {
+  const { driverId } = req.params;
+  const driver = await repo.getItem(keys.driver(driverId));
+  if (!driver) return res.status(404).json({ error: "No such driver" });
+
+  // The driver's login username isn't necessarily driverId — admins can
+  // rename it independently (see PUT /users/:username/username) — so the
+  // matching USER item has to be found by its driverId attribute, not by
+  // constructing USER#<driverId> and assuming that's still the key.
+  const all = await repo.getAll();
+  const userItem = all.find((i) => i.itemType === itemTypes.USER && i.driverId === driverId);
+
+  const deletes = [{ Delete: { Key: keys.driver(driverId) } }];
+  if (userItem) deletes.push({ Delete: { Key: keys.user(userItem.username) } });
+  if (driver.carColor) deletes.push({ Delete: { Key: keys.carColorClaim(driver.carColor) } });
+  await repo.transactWrite(deletes);
+  res.json({ ok: true });
 });
 
 router.post("/users/:username/reset-password", async (req, res) => {

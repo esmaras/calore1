@@ -197,7 +197,7 @@ async function apiRequest(method, url, body) {
   const res = await fetch(url, {
     method,
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body ?? {}),
+    body: method === "GET" ? undefined : JSON.stringify(body ?? {}),
   });
   if (res.status === 401) {
     window.location.reload();
@@ -206,6 +206,10 @@ async function apiRequest(method, url, body) {
   const responseBody = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(responseBody.error || `Request failed (${res.status})`);
   return responseBody;
+}
+
+function apiGet(url) {
+  return apiRequest("GET", url);
 }
 
 function apiPut(url, body) {
@@ -602,6 +606,20 @@ function renderDrivers(container) {
         resetBtn.disabled = false;
       });
       card.appendChild(resetBtn);
+
+      const removeBtn = h("button", { class: "btn small danger", style: "margin-top:6px; margin-left:6px;" }, "Remove driver");
+      removeBtn.addEventListener("click", async () => {
+        if (!window.confirm(`Remove ${d.driver} (${d.player})? This deletes their login and roster entry. Their past standings/upgrade tracker history stays but won't be shown anywhere.`)) return;
+        removeBtn.disabled = true;
+        try {
+          await apiRequest("DELETE", `/api/admin/drivers/${d.driverId}`);
+          await refreshData();
+        } catch (err) {
+          showErrorBanner(`Could not remove ${d.driver}`, err.message);
+          removeBtn.disabled = false;
+        }
+      });
+      card.appendChild(removeBtn);
     }
 
     grid.appendChild(card);
@@ -611,7 +629,58 @@ function renderDrivers(container) {
 
   if (isAdmin()) {
     container.appendChild(renderAddDriverForm());
+    container.appendChild(renderAllUsersPanel());
   }
+}
+
+function renderAllUsersPanel() {
+  const panel = h("div", { class: "panel" });
+  panel.appendChild(h("h2", {}, "All User Accounts"));
+  const table = h("table");
+  table.appendChild(
+    h("thead", {}, h("tr", {}, h("th", {}, "Username"), h("th", {}, "Role"), h("th", {}, "Linked Driver"), h("th", {}, "Must Change Password"), h("th", {}, "")))
+  );
+  const tbody = h("tbody");
+  table.appendChild(tbody);
+  panel.appendChild(table);
+
+  const errorEl = h("div", { class: "auth-error" });
+  panel.appendChild(errorEl);
+
+  apiGet("/api/admin/users")
+    .then((users) => {
+      // DATA.drivers doesn't carry driverId (see assembleData) — match by
+      // username against the driver-tab rows instead, falling back to the
+      // raw driverId if a driver's username was somehow never assigned.
+      const driverNameByUsername = Object.fromEntries(DATA.drivers.filter((d) => d.username).map((d) => [d.username, d.driver]));
+      users.forEach((u) => {
+        const tr = h("tr");
+        tr.appendChild(h("td", {}, u.username));
+        tr.appendChild(h("td", {}, u.role));
+        tr.appendChild(h("td", {}, u.driverId ? driverNameByUsername[u.username] || u.driverId : "—"));
+        tr.appendChild(h("td", {}, u.mustChangePassword ? "Yes" : "No"));
+        const tdReset = h("td");
+        const resetBtn = h("button", { class: "btn small" }, "Reset password");
+        resetBtn.addEventListener("click", async () => {
+          resetBtn.disabled = true;
+          try {
+            const body = await apiPost(`/api/admin/users/${u.username}/reset-password`);
+            showCredentialsBanner(`Password reset for ${u.username}`, body.username, body.tempPassword);
+          } catch (err) {
+            showErrorBanner(`Could not reset password for ${u.username}`, err.message);
+          }
+          resetBtn.disabled = false;
+        });
+        tdReset.appendChild(resetBtn);
+        tr.appendChild(tdReset);
+        tbody.appendChild(tr);
+      });
+    })
+    .catch((err) => {
+      errorEl.textContent = err.message;
+    });
+
+  return panel;
 }
 
 function renderAddDriverForm() {

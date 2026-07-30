@@ -45,7 +45,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: 0.2px; }
 }
 
 .brand { display: flex; align-items: center; gap: 14px; }
-.brand .flag { font-size: 28px; }
+.brand .logo { font-size: 28px; }
 .brand h1 { margin: 0; font-size: 1.4rem; }
 .brand #league-sub { margin-top: 2px; }
 
@@ -231,6 +231,8 @@ input:focus, textarea:focus, select:focus {
 .btn:hover { border-color: var(--accent); color: white; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
 .btn.small { padding: 4px 9px; font-size: 0.8rem; }
+.btn.danger { color: var(--accent); border-color: var(--accent-dim); }
+.btn.danger:hover { background: var(--accent); border-color: var(--accent); color: white; }
 
 .row-actions { display: flex; gap: 6px; }
 
