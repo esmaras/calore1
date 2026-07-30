@@ -34,6 +34,7 @@ help:
 	@echo "  AWS Deploy"
 	@echo "    Prereq: AWS credentials configured (aws configure), and .env.dev filled in."
 	@echo "    make tf-init         terraform init (run once per workspace)"
+	@echo "    make tf-bootstrap    First-ever apply (before any image is pushed): ECR + DynamoDB + IAM only"
 	@echo "    make tf-plan         terraform plan"
 	@echo "    make tf-apply        terraform apply"
 	@echo "    make tf-destroy      terraform destroy (tears down all infra)"
@@ -114,6 +115,19 @@ ssm-put-secret:
 .PHONY: tf-init
 tf-init:
 	cd $(TF_DIR) && terraform init
+
+# One-time, before any image has ever been pushed: creates ECR + DynamoDB +
+# IAM only. Passes app_image="" explicitly so aws_apprunner_service's count
+# stays 0 — App Runner can't reference an image tag that doesn't exist yet.
+# Unlike tf-plan/tf-apply (used for every deploy after), this must NEVER pass
+# a non-empty app_image, or it recreates the exact "ECR image doesn't exist"
+# CREATE_FAILED bug this target exists to avoid.
+.PHONY: tf-bootstrap
+tf-bootstrap:
+	cd $(TF_DIR) && terraform apply --auto-approve \
+		-var environment=$(ENV) \
+		-var app_image="" \
+		-var session_secret_ssm_arn=$(SESSION_SECRET_SSM_ARN)
 
 .PHONY: tf-plan
 tf-plan:

@@ -121,9 +121,17 @@ resource "aws_iam_role_policy_attachment" "apprunner_instance_dynamodb" {
   policy_arn = aws_iam_policy.app_dynamodb.arn
 }
 
-# Lets the App Runner build/access role fetch SESSION_SECRET from SSM at
+# Lets the App Runner *instance* role fetch SESSION_SECRET from SSM at
 # container start (runtime_environment_secrets below) — populate the
 # parameter itself with `make ssm-put-secret` before the first real apply.
+# Must be the instance role, not the access role: the access role is only
+# ever used to authenticate ECR image pulls before the container starts;
+# runtime_environment_secrets are resolved by the instance role, the one
+# the running task itself assumes. Attaching this to the access role (an
+# earlier version of this file did) makes App Runner fail to inject
+# SESSION_SECRET at deploy time with an opaque "Failed to deploy your
+# application image" and no application logs at all, since secret
+# injection happens before the container is ever started.
 data "aws_iam_policy_document" "apprunner_ssm_secrets" {
   count = local.has_secret ? 1 : 0
   statement {
@@ -138,9 +146,9 @@ resource "aws_iam_policy" "apprunner_ssm_secrets" {
   policy = data.aws_iam_policy_document.apprunner_ssm_secrets[0].json
 }
 
-resource "aws_iam_role_policy_attachment" "apprunner_access_ssm_secrets" {
+resource "aws_iam_role_policy_attachment" "apprunner_instance_ssm_secrets" {
   count      = local.has_secret ? 1 : 0
-  role       = aws_iam_role.apprunner_access.name
+  role       = aws_iam_role.apprunner_instance.name
   policy_arn = aws_iam_policy.apprunner_ssm_secrets[0].arn
 }
 
@@ -201,5 +209,5 @@ resource "aws_apprunner_service" "app" {
     timeout  = 5
   }
 
-  depends_on = [aws_iam_role_policy_attachment.apprunner_access_ecr, aws_iam_role_policy_attachment.apprunner_access_ssm_secrets]
+  depends_on = [aws_iam_role_policy_attachment.apprunner_access_ecr, aws_iam_role_policy_attachment.apprunner_instance_ssm_secrets]
 }

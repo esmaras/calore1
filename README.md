@@ -110,8 +110,15 @@ public AWS API, so neither needs one.
 ```bash
 make tf-init                     # once per machine/workspace
 make ssm-put-secret               # stores SESSION_SECRET in SSM (prompts, or auto-generates)
-make tf-apply                      # creates ECR + DynamoDB + IAM (App Runner not yet — no image pushed)
+make tf-bootstrap                  # creates ECR + DynamoDB + IAM (App Runner not yet — no image pushed)
 ```
+
+Use `make tf-bootstrap` here, not `make tf-apply` — `tf-apply` (and `tf-plan`) always
+pass a concrete `app_image` value for ongoing deploys, so running either of those
+before any image has been pushed creates an App Runner service pointing at a
+nonexistent image tag, which fails immediately with a `CREATE_FAILED` status
+("ECR image doesn't exist"). `tf-bootstrap` passes `app_image=""` explicitly so
+App Runner is correctly skipped until `make deploy` pushes a real image.
 
 **First deploy** (and every deploy after):
 
