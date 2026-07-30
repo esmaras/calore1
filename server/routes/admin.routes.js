@@ -131,7 +131,9 @@ router.post("/users/:username/reset-password", async (req, res) => {
   const { username } = req.params;
   const existing = await repo.getItem(keys.user(username));
   if (!existing) return res.status(404).json({ error: "No such user" });
-  const tempPassword = generateTempPassword();
+  // Temp password is just the username itself — easy to relay verbally,
+  // and mustChangePassword forces a real password on next login anyway.
+  const tempPassword = username;
   const passwordHash = await hashPassword(tempPassword);
   await repo.updateItem(keys.user(username), { passwordHash, mustChangePassword: true });
   res.json({ username, tempPassword });
