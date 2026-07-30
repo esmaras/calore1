@@ -45,7 +45,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: 0.2px; }
   gap: 14px;
 }
 
-.brand { display: flex; align-items: center; gap: 14px; }
+.brand { display: flex; align-items: center; gap: 14px; cursor: pointer; }
 .brand .logo img { 
   max-width: 100%;
   width: 70px;
@@ -335,6 +335,113 @@ footer.hint {
 @media (max-width: 700px) {
   .kv-grid { grid-template-columns: 1fr; }
   .topbar { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
+
+/* ---------- Home (bento overview) ---------- */
+/* Two containers, not a uniform grid: the expanded card sits alone on the
+   left; every other card is stacked in a column on the right, each with
+   equal flex-basis, so they always collectively fill exactly the expanded
+   card's height — one card stretches to fill it alone, five cards split
+   it five ways, never a gap. The expanded card's own height is content-
+   driven (no fixed height, no internal scroll — see .expanded below);
+   align-items: stretch on the row then makes the collapsed column match
+   whatever height that content needs. Sizes here don't transition via
+   plain CSS (reparenting a card between containers isn't something a
+   transition can animate) — animateBentoReflow() in app.js handles the
+   motion with a FLIP transform instead. */
+.bento-grid {
+  display: flex;
+  /* Deliberately not `stretch`: with two nested flex containers, stretch
+     sizes BOTH sides to the tallest one's unconstrained natural content
+     (the collapsed column's full content sum, computed before its
+     children ever get a chance to divide/scroll a fixed height) — which
+     inflates the expanded card with dead space instead of the collapsed
+     column matching the expanded card's height. Each side sizes to its
+     own content instead; app.js's syncBentoHeights() then copies the
+     expanded side's resolved height onto the collapsed column explicitly. */
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.bento-expanded-wrap {
+  display: flex;
+  flex: 2.2 1 0%;
+  min-width: 0;
+}
+
+.bento-collapsed-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0%;
+  gap: 16px;
+  min-width: 0;
+  overflow: hidden; /* height is set explicitly in px by JS; this just guards against a rounding-error sliver of overflow */
+}
+
+.bento-card {
+  position: relative;
+  isolation: isolate; /* keeps the ::before gradient frame contained to this card's stacking context */
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  cursor: pointer;
+  min-width: 0;
+}
+/* Collapsed cards: equal share of the column's height. No scroll here —
+   these are previews, not a place to interact; content past the fitted
+   share is clipped rather than scrollable. Clicking through to expand
+   (or the "View full tab" link) is how you see the rest. */
+.bento-collapsed-wrap .bento-card {
+  flex: 1 1 0%;
+  overflow: hidden;
+  min-height: 0;
+}
+/* The expanded card fills its wrap completely and is never capped —
+   "expand fully without needing to scroll" means height:auto, not a
+   fixed box with overflow. */
+.bento-card.expanded {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 380px;
+  overflow: visible;
+  cursor: default;
+}
+
+.bento-card h3 { margin: 0 0 14px; font-size: 1rem; }
+.bento-card.expanded h3 { font-size: 1.2rem; }
+
+.bento-view-full { display: none; margin-top: 16px; }
+.bento-card.expanded .bento-view-full { display: block; }
+
+/* Gradient border that grows in from the card's edge on hover — a ring
+   whose thickness (the gap between the outer edge and the masked-out
+   inner hole) animates from 0 to a few px, reading as "closing inward". */
+.bento-card:not(.expanded)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 0;
+  background: linear-gradient(135deg, var(--accent), #ffb37a, var(--accent));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  pointer-events: none;
+  transition: padding 0.5s ease, opacity 0.5s ease;
+}
+.bento-card:not(.expanded):hover::before {
+  padding: 4px;
+  opacity: 1;
+}
+
+@media (max-width: 860px) {
+  .bento-grid { flex-direction: column; min-height: 0; }
+  .bento-expanded-wrap { flex: none; }
+  .bento-collapsed-wrap { flex: none; }
+  .bento-collapsed-wrap .bento-card { flex: none; height: 220px; }
 }
 
 .hamburger-btn {

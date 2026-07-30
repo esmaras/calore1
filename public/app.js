@@ -2,7 +2,8 @@
 
 let DATA = null;
 let MAX_UPGRADE_SLOTS = 3;
-let activeTab = "standings";
+let activeTab = "home";
+let homeExpandedCard = "standings";
 // The season Standings/Upgrade Tracker/FICC Backlog are currently showing.
 // Starts null (server picks the current season on first load); synced to
 // DATA.viewedSeasonNumber after every fetch so writes always target the
@@ -1430,10 +1431,305 @@ function renderProfile(container) {
   });
   panel3.appendChild(pwBtn);
   container.appendChild(panel3);
+
+  const panel4 = h("div", { class: "panel" });
+  panel4.appendChild(h("h2", {}, "Home Page"));
+  panel4.appendChild(h("p", { class: "muted panel-note" }, `Pick up to ${MAX_HOME_CARDS} pages to feature on your Home tab.`));
+  const selected = new Set(currentHomeCardIds());
+  const checkboxes = [];
+  const updateDisabledState = () => {
+    const atMax = selected.size >= MAX_HOME_CARDS;
+    checkboxes.forEach(([id, cb]) => { if (!cb.checked) cb.disabled = atMax; });
+  };
+  const list = h("div", { style: "display:flex; flex-direction:column; gap:8px; margin-bottom:14px;" });
+  HOME_PAGE_CATALOG.forEach((c) => {
+    const row = h("label", { style: "display:flex; align-items:center; gap:8px; cursor:pointer;" });
+    const cb = h("input", { type: "checkbox" });
+    cb.style.width = "auto";
+    cb.checked = selected.has(c.id);
+    cb.addEventListener("change", () => {
+      if (cb.checked) selected.add(c.id); else selected.delete(c.id);
+      updateDisabledState();
+    });
+    row.appendChild(cb);
+    row.appendChild(document.createTextNode(c.title));
+    checkboxes.push([c.id, cb]);
+    list.appendChild(row);
+  });
+  updateDisabledState();
+  panel4.appendChild(list);
+
+  const homeCardsMsgEl = h("div", { class: "auth-error" });
+  const homeCardsBtn = h("button", { class: "btn primary" }, "Save Home page picks");
+  homeCardsBtn.addEventListener("click", async () => {
+    homeCardsMsgEl.style.color = "";
+    homeCardsMsgEl.textContent = "";
+    if (selected.size === 0) { homeCardsMsgEl.textContent = "Pick at least one page."; return; }
+    homeCardsBtn.disabled = true;
+    try {
+      const cards = HOME_PAGE_CATALOG.filter((c) => selected.has(c.id)).map((c) => c.id);
+      const body = await apiPut("/api/auth/home-cards", { cards });
+      CURRENT_USER.homeCards = body.homeCards;
+      homeCardsMsgEl.style.color = "var(--good)";
+      homeCardsMsgEl.textContent = "Saved — check the Home tab.";
+    } catch (err) {
+      homeCardsMsgEl.textContent = err.message;
+    }
+    homeCardsBtn.disabled = false;
+  });
+  panel4.appendChild(homeCardsMsgEl);
+  panel4.appendChild(homeCardsBtn);
+  container.appendChild(panel4);
 }
 
 // ---------- tabs infra ----------
+function buildStandingsSummary() {
+  recomputeStandings();
+  const wrap = h("div", { class: "table-scroll" });
+  const table = h("table");
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Pts"), h("th", {}, "Pos"))));
+  const tbody = h("tbody");
+  const sorted = [...DATA.standings.drivers].sort((a, b) => a.position - b.position);
+  for (const d of sorted) {
+    tbody.appendChild(
+      h("tr", {}, h("td", {}, driverBadge(d.driver)), h("td", {}, String(d.totalPoints)), h("td", { class: podiumClass("pos-", d.position) }, String(d.position)))
+    );
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function buildDriversSummary() {
+  const list = h("div", { style: "display:flex; flex-direction:column; gap:8px;" });
+  DATA.drivers.forEach((d) => {
+    const row = h("div", { style: "display:flex; align-items:center; justify-content:space-between; gap:10px;" });
+    row.appendChild(driverBadge(d.driver));
+    row.appendChild(h("span", { class: "muted" }, d.teamName || ""));
+    list.appendChild(row);
+  });
+  return list;
+}
+
+function buildUpgradesSummary() {
+  const wrap = h("div", { class: "table-scroll" });
+  const table = h("table");
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Remaining"))));
+  const tbody = h("tbody");
+  for (const e of DATA.upgradeTracker.entries) {
+    tbody.appendChild(h("tr", {}, h("td", {}, driverBadge(e.driver)), h("td", {}, fmtMoney(e.remainingBudget))));
+  }
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function buildSeasonSummary() {
+  const s = DATA.season;
+  const wrap = h("div", {});
+  const stats = h("div", { style: "display:flex; gap:18px; flex-wrap:wrap; margin-bottom:14px;" });
+  const stat = (label, value) => h("div", {}, h("div", { class: "muted", style: "font-size:0.78rem;" }, label), h("div", { style: "font-weight:700; font-size:1.1rem;" }, String(value ?? "—")));
+  stats.appendChild(stat("Season", s.label));
+  stats.appendChild(stat("Races", s.racesThisSeason));
+  stats.appendChild(stat("Upgrade slots", s.upgradeSlots));
+  wrap.appendChild(stats);
+
+  const table = h("table");
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Race #"), h("th", {}, "Track"))));
+  const tbody = h("tbody");
+  (s.schedule || []).forEach((r) => tbody.appendChild(h("tr", {}, h("td", {}, String(r.race)), h("td", {}, r.track))));
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function buildInventorySummary() {
+  const wrap = h("div", {});
+  wrap.appendChild(h("p", { class: "muted", style: "margin:0 0 10px; font-size:0.85rem;" }, `${DATA.inventory.upgrades.length} upgrade parts available`));
+  const table = h("table");
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Sponsor"), h("th", {}, "Funding"))));
+  const tbody = h("tbody");
+  for (const s of DATA.inventory.sponsors) tbody.appendChild(h("tr", {}, h("td", {}, s.name), h("td", {}, fmtMoney(s.funding))));
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+function buildTechRegsSummary() {
+  const table = h("table");
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Regulation"), h("th", {}, "Type"))));
+  const tbody = h("tbody");
+  for (const r of DATA.technicalRegulations) tbody.appendChild(h("tr", {}, h("td", {}, r.name), h("td", {}, r.type)));
+  table.appendChild(tbody);
+  return table;
+}
+
+function buildFiccSummary() {
+  const table = h("table");
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Proposed Regulation"))));
+  const tbody = h("tbody");
+  for (const p of DATA.ficcBacklog.proposals) {
+    if (!p.regulationName) continue;
+    tbody.appendChild(h("tr", {}, h("td", {}, p.driverName || "Freeform"), h("td", {}, p.regulationName)));
+  }
+  table.appendChild(tbody);
+  return table;
+}
+
+function buildOffSeasonSummary() {
+  const table = h("table");
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Tier"), h("th", {}, "Upgrade Exchange"))));
+  const tbody = h("tbody");
+  for (const r of DATA.offSeasonBudget.regulations) tbody.appendChild(h("tr", {}, h("td", {}, r.tier), h("td", {}, r.upgradeExchange)));
+  table.appendChild(tbody);
+  return table;
+}
+
+function buildHofSummary() {
+  const table = h("table");
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Season"), h("th", {}, "Champion"))));
+  const tbody = h("tbody");
+  for (const row of DATA.hallOfFame.seasonLog) tbody.appendChild(h("tr", {}, h("td", { class: "cell-computed" }, String(row.season)), h("td", {}, row.champion || "")));
+  table.appendChild(tbody);
+  return table;
+}
+
+function buildLoreSummary() {
+  const l = DATA.lore;
+  const wrap = h("div", {});
+  const kv = h("div", { class: "kv-grid" });
+  const addKV = (label, value) => { kv.appendChild(h("label", {}, label)); kv.appendChild(h("div", {}, value || "—")); };
+  addKV("League", l.leagueName);
+  addKV("Governing body", l.governingBody);
+  addKV("Motto", l.motto);
+  addKV("Driver's Trophy", l.driversTrophy?.name);
+  wrap.appendChild(kv);
+  return wrap;
+}
+
+// ---------- Home (bento-style overview) ----------
+// Read-only summaries only — each card links out to its real tab for
+// editing, rather than duplicating every tab's full editable content here.
+// Kept in sync with HOME_CARD_IDS in server/routes/auth.routes.js.
+const HOME_PAGE_CATALOG = [
+  { id: "standings", title: "Standings", build: buildStandingsSummary },
+  { id: "drivers", title: "Drivers", build: buildDriversSummary },
+  { id: "upgrades", title: "Upgrade Tracker", build: buildUpgradesSummary },
+  { id: "inventory", title: "Inventory", build: buildInventorySummary },
+  { id: "season", title: "Season & Schedule", build: buildSeasonSummary },
+  { id: "techregs", title: "Technical Regs", build: buildTechRegsSummary },
+  { id: "ficc", title: "FICC Backlog", build: buildFiccSummary },
+  { id: "offseason", title: "Off-Season Budget", build: buildOffSeasonSummary },
+  { id: "hof", title: "Hall of Fame", build: buildHofSummary },
+  { id: "lore", title: "Lore & Trophies", build: buildLoreSummary },
+];
+const DEFAULT_HOME_CARDS = ["standings", "drivers", "upgrades", "season"];
+const MAX_HOME_CARDS = 6;
+
+function currentHomeCardIds() {
+  const known = new Set(HOME_PAGE_CATALOG.map((c) => c.id));
+  const chosen = (CURRENT_USER?.homeCards || DEFAULT_HOME_CARDS).filter((id) => known.has(id));
+  return (chosen.length ? chosen : DEFAULT_HOME_CARDS).slice(0, MAX_HOME_CARDS);
+}
+
+// FLIP animation (First-Last-Invert-Play): captures each card's on-screen
+// rect before the layout change, applies the change, then plays an inverse
+// transform back to identity. This is what makes the reflow (the expanded
+// card swapping, every other card sliding to a new spot — including
+// moving to a different parent element) animate smoothly — a plain CSS
+// transition can't animate flex-basis/reparenting, since the browser
+// treats those as discrete layout jumps rather than continuously
+// interpolable values. getBoundingClientRect() is viewport-relative, so
+// this works fine even when a card moves to a different parent container.
+function animateBentoReflow(cardEls, applyChange) {
+  const before = cardEls.map((el) => [el, el.getBoundingClientRect()]);
+  applyChange();
+  for (const [el, from] of before) {
+    const to = el.getBoundingClientRect();
+    const dx = from.left - to.left;
+    const dy = from.top - to.top;
+    const sx = from.width / to.width;
+    const sy = from.height / to.height;
+    if (!dx && !dy && sx === 1 && sy === 1) continue;
+    el.style.transition = "none";
+    el.style.transformOrigin = "top left";
+    el.style.transform = `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`;
+    // eslint-disable-next-line no-unused-expressions
+    el.offsetWidth; // force layout so the transform above actually applies before we transition away from it
+    requestAnimationFrame(() => {
+      el.style.transition = "transform 0.45s ease";
+      el.style.transform = "";
+    });
+  }
+}
+
+// Every card renders its full content immediately and stays mounted for
+// the lifetime of this render. Layout is two containers: one holds the
+// single expanded card, the other holds every other card stacked in a
+// column with equal flex-basis — so the collapsed cards always
+// collectively fill exactly the expanded card's height, whether there's
+// one of them or five, with no leftover gap. Expand/collapse moves a card
+// between the two containers rather than re-rendering, which is what lets
+// animateBentoReflow find the persistent elements and interpolate them.
+// Copies the expanded card's resolved (content-driven) height onto the
+// collapsed column, so the collapsed cards collectively fill exactly that
+// height (dividing it via their own flex:1) instead of the column's full
+// unconstrained content sum inflating the expanded side — see the comment
+// on .bento-grid in style.css for why plain align-items: stretch can't do
+// this on its own. Skipped on the mobile layout, where the grid stacks to
+// a single column and each side sizes independently.
+function syncBentoHeights(grid, expandedWrap, collapsedWrap) {
+  const isRow = getComputedStyle(grid).flexDirection === "row";
+  collapsedWrap.style.height = isRow ? `${expandedWrap.offsetHeight}px` : "";
+}
+
+function renderHome(container) {
+  const grid = h("div", { class: "bento-grid" });
+  const expandedWrap = h("div", { class: "bento-expanded-wrap" });
+  const collapsedWrap = h("div", { class: "bento-collapsed-wrap" });
+  grid.appendChild(expandedWrap);
+  grid.appendChild(collapsedWrap);
+
+  const cardIds = currentHomeCardIds();
+  if (!cardIds.includes(homeExpandedCard)) homeExpandedCard = cardIds[0];
+  const cardEls = [];
+
+  function placeCards() {
+    cardEls.forEach(([id, el]) => {
+      const isExpanded = id === homeExpandedCard;
+      el.classList.toggle("expanded", isExpanded);
+      (isExpanded ? expandedWrap : collapsedWrap).appendChild(el);
+    });
+    syncBentoHeights(grid, expandedWrap, collapsedWrap);
+  }
+
+  cardIds.forEach((id) => {
+    const c = HOME_PAGE_CATALOG.find((page) => page.id === id);
+    const card = h("div", { class: "bento-card" });
+    card.appendChild(h("h3", {}, c.title));
+    card.appendChild(c.build());
+    const linkBtn = h("button", { class: "btn primary bento-view-full" }, `View full ${c.title} tab →`);
+    linkBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      goToTab(c.id);
+    });
+    card.appendChild(linkBtn);
+
+    card.addEventListener("click", () => {
+      if (id === homeExpandedCard) return;
+      homeExpandedCard = id;
+      animateBentoReflow(cardEls.map(([, el]) => el), placeCards);
+    });
+
+    cardEls.push([id, card]);
+  });
+
+  placeCards();
+  container.appendChild(grid);
+}
+
 const TABS = [
+  { id: "home", label: "Home", render: renderHome },
   { id: "standings", label: "Standings", render: renderStandings },
   { id: "drivers", label: "Drivers", render: renderDrivers },
   { id: "upgrades", label: "Upgrade Tracker", render: renderUpgradeTracker },
@@ -1447,17 +1743,19 @@ const TABS = [
   { id: "profile", label: "My Account", render: renderProfile },
 ];
 
+function goToTab(tabId) {
+  activeTab = tabId;
+  renderTabs();
+  renderActive();
+  closeMobileNav();
+}
+
 function renderTabs() {
   const nav = document.getElementById("tabs");
   nav.innerHTML = "";
   for (const t of TABS) {
     const btn = h("button", { class: "tab-btn" + (t.id === activeTab ? " active" : "") }, t.label);
-    btn.addEventListener("click", () => {
-      activeTab = t.id;
-      renderTabs();
-      renderActive();
-      closeMobileNav();
-    });
+    btn.addEventListener("click", () => goToTab(t.id));
     nav.appendChild(btn);
   }
 }
@@ -1472,6 +1770,12 @@ function syncTopbarHeight() {
   document.documentElement.style.setProperty("--topbar-h", `${topbar.offsetHeight}px`);
 }
 window.addEventListener("resize", syncTopbarHeight);
+window.addEventListener("resize", () => {
+  const grid = document.querySelector(".bento-grid");
+  const expandedWrap = document.querySelector(".bento-expanded-wrap");
+  const collapsedWrap = document.querySelector(".bento-collapsed-wrap");
+  if (grid && expandedWrap && collapsedWrap) syncBentoHeights(grid, expandedWrap, collapsedWrap);
+});
 document.querySelector(".brand .logo img")?.addEventListener("load", syncTopbarHeight);
 
 function closeMobileNav() {
@@ -1676,6 +1980,7 @@ async function loadAppData() {
   });
   document.getElementById("hamburger-btn").addEventListener("click", toggleMobileNav);
   document.getElementById("nav-backdrop").addEventListener("click", closeMobileNav);
+  document.querySelector(".brand").addEventListener("click", () => goToTab("home"));
   renderTabs();
   syncTopbarHeight();
 }

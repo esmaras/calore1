@@ -7,6 +7,11 @@ const { renameUser } = require("../auth/users");
 
 const router = express.Router();
 
+// Kept in sync with the client's page catalog (public/app.js, HOME_PAGE_CATALOG)
+// — the set of tabs that can be featured on a user's Home bento grid.
+const HOME_CARD_IDS = new Set(["standings", "drivers", "upgrades", "inventory", "season", "techregs", "ficc", "offseason", "hof", "lore"]);
+const MAX_HOME_CARDS = 6;
+
 router.post("/login", async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: "username and password required" });
@@ -28,6 +33,7 @@ router.post("/login", async (req, res) => {
     role: user.role,
     driverId: user.driverId || null,
     mustChangePassword: !!user.mustChangePassword,
+    homeCards: user.homeCards || null,
   });
 });
 
@@ -44,7 +50,23 @@ router.get("/me", requireAuth, async (req, res) => {
     role: user.role,
     driverId: user.driverId || null,
     mustChangePassword: !!user.mustChangePassword,
+    homeCards: user.homeCards || null,
   });
+});
+
+// Self-service Home page customization — any authenticated user picks
+// their own featured pages, independent of role. Null/omitted homeCards
+// (never set, or reset) means "use the default set" — the client decides
+// the default so it stays in one place (public/app.js HOME_PAGE_CATALOG).
+router.put("/home-cards", requireAuth, async (req, res) => {
+  const { cards } = req.body || {};
+  if (!Array.isArray(cards) || cards.length === 0) return res.status(400).json({ error: "Pick at least one page" });
+  if (cards.length > MAX_HOME_CARDS) return res.status(400).json({ error: `Pick at most ${MAX_HOME_CARDS} pages` });
+  const deduped = [...new Set(cards)];
+  if (deduped.some((id) => !HOME_CARD_IDS.has(id))) return res.status(400).json({ error: "Unknown page id" });
+
+  await repo.updateItem(keys.user(req.user.username), { homeCards: deduped });
+  res.json({ homeCards: deduped });
 });
 
 router.post("/change-password", requireAuth, async (req, res) => {
