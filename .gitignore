@@ -3,6 +3,14 @@ node_modules/
 .env.*
 !.env.example
 *.log
+.DS_Store
+
+# Raw source photos for public/images/cards/*_cropped.png — the app only
+# ever serves the cropped PNGs, never these. Keeping the ~300MB of HEIC
+# originals out of git history; they live locally (or wherever the crops
+# were produced) instead.
+*.HEIC
+*.heic
 
 # Terraform — local state/plan/provider-cache artifacts. .terraform.lock.hcl
 # is intentionally NOT ignored: it pins provider versions and should be

@@ -15,6 +15,8 @@ const EDITABLE_FIELDS = [
   "legends",
   "baseTeamBudget",
   "schedule",
+  "allowedTiers",
+  "disallowedTypes",
 ];
 
 // The scoring lookup table (position -> points) is a sensible default for
@@ -55,6 +57,11 @@ router.post("/", requireAdmin, async (req, res) => {
     schedule: [],
     raceLabels: [],
     pointsTable: DEFAULT_POINTS_TABLE,
+    // Empty means "no restriction" — allowedTiers as an inclusion list,
+    // disallowedTypes as an exclusion list, per how admins described
+    // wanting to configure each (which tiers ARE in, which types are OUT).
+    allowedTiers: [],
+    disallowedTypes: [],
   };
   await repo.putItem(item);
   res.json(item);

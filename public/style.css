@@ -169,6 +169,106 @@ input:focus, textarea:focus, select:focus {
   font-variant-numeric: tabular-nums;
 }
 
+/* Inventory rows expand in place to reveal a part's card image. The
+   detail row's height is unknown ahead of time (image aspect ratios
+   vary), so it's animated via grid-template-rows 0fr -> 1fr rather than
+   a hardcoded max-height. */
+.inv-row { cursor: pointer; }
+.inv-part { white-space: nowrap; }
+.inv-chevron-col { width: 1%; padding-right: 0; }
+.inv-chevron {
+  display: inline-block;
+  color: var(--text-dim);
+  transition: transform 0.2s ease;
+}
+.inv-row.open .inv-chevron { transform: rotate(90deg); }
+
+.inv-detail-row td { padding: 0; border-bottom: none; }
+.inv-detail {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.28s ease;
+}
+.inv-detail.open { grid-template-rows: 1fr; }
+.inv-detail-inner { overflow: hidden; min-height: 0; }
+.inv-detail-inner img {
+  display: block;
+  width: 100%;
+  max-width: 240px;
+  height: auto;
+  margin: 14px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-panel-2);
+}
+.inv-detail-inner p { margin: 14px 10px; }
+
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--text); }
+th.sortable.sorted { color: var(--text); }
+
+.inv-depleted { color: var(--warn); }
+
+/* Upgrade Tracker: a driver's row loses the priority contest for a scarce
+   part when a higher-priority driver claims it later — flagged here at
+   the row level (red/orange highlight) rather than blocking anyone, with
+   a description row underneath naming the affected part(s). */
+.row-noncompliant, .row-noncompliant td {
+  color: var(--accent);
+  background: rgba(224, 160, 32, 0.12);
+}
+.compliance-detail-row td {
+  padding: 8px 12px;
+  background: rgba(224, 160, 32, 0.08);
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.compliance-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--warn);
+  color: var(--bg);
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+/* Card Restrictions box (Upgrade Tracker) — one row per rule kind (tiers,
+   types), each a wrap of checkbox pills. Disabled (non-admin) checkboxes
+   just look muted; the label/text stays fully legible either way. */
+.restriction-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.restriction-row:last-child { border-bottom: none; }
+.restriction-row-label {
+  flex: none;
+  width: 70px;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding-top: 4px;
+}
+.restriction-checkboxes { display: flex; flex-wrap: wrap; gap: 6px 16px; flex: 1; }
+.restriction-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.restriction-checkbox input[type="checkbox"] { width: auto; cursor: pointer; }
+.restriction-checkbox input[type="checkbox"]:disabled { cursor: default; }
+.restriction-checkbox:has(input:disabled) { color: var(--text-dim); cursor: default; }
+
 /* Classes for coloring standings ranks — 1st/2nd/3rd get their own color,
    every other position shares .pos-other (see podiumClass() in app.js) */
 .pos-1 { color: #d6a500; font-weight: 700; }

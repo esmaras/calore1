@@ -1,4 +1,6 @@
 const { itemTypes } = require("./keys");
+const { buildStandingsRowsForSeason } = require("./ranking");
+const { computeCompliance } = require("./priority");
 
 function strip(item) {
   if (!item) return item;
@@ -23,16 +25,6 @@ function sponsorFunding(sponsors, sponsorName) {
   if (!sponsorName) return 0;
   const s = sponsors.find((s) => s.name === sponsorName);
   return s && typeof s.funding === "number" ? s.funding : 0;
-}
-
-function rankStandings(rows) {
-  const sorted = [...rows].sort((a, b) => b.totalPoints - a.totalPoints);
-  let rank = 0, prevPoints = null, seen = 0;
-  for (const row of sorted) {
-    seen++;
-    if (row.totalPoints !== prevPoints) { rank = seen; prevPoints = row.totalPoints; }
-    row.position = rank;
-  }
 }
 
 // Turns the flat array of DynamoDB items (as returned by repo.getAll())
@@ -62,7 +54,6 @@ function assembleData(items, viewedSeason) {
 
   const pointsTable = seasonItem.pointsTable || [];
   const raceLabels = seasonItem.raceLabels || [];
-  const pointsLookup = Object.fromEntries(pointsTable.map((p) => [p.position, p.points]));
 
   const upgradeParts = (byType[itemTypes.UPGRADEPART] || []).map(strip).sort((a, b) => a.partNumber - b.partNumber);
   const sponsors = (byType[itemTypes.SPONSOR] || []).map(strip);
@@ -71,7 +62,6 @@ function assembleData(items, viewedSeason) {
     .filter((c) => c.active !== false)
     .sort((a, b) => a.name.localeCompare(b.name));
 
-  const standingsByDriver = Object.fromEntries(bySeason(itemTypes.STANDINGS, seasonNumber).map((s) => [s.driverId, s]));
   const upgradeTrackerByDriver = Object.fromEntries(bySeason(itemTypes.UPGRADETRACKER, seasonNumber).map((u) => [u.driverId, u]));
   const ficcProposalByDriver = Object.fromEntries(bySeason(itemTypes.FICC_PROPOSAL, seasonNumber).map((p) => [p.driverId, p]));
   const usernameByDriverId = Object.fromEntries(
@@ -79,17 +69,7 @@ function assembleData(items, viewedSeason) {
   );
 
   // ---- standings ----
-  const standingsRows = driverIds.map((driverId) => {
-    const driver = driverById[driverId];
-    const row = standingsByDriver[driverId] || { races: [] };
-    const races = row.races || [];
-    let totalPoints = 0;
-    for (const pos of races) {
-      if (pos != null && pointsLookup[pos] != null) totalPoints += pointsLookup[pos];
-    }
-    return { driver: driver.driver, team: driver.teamName, races, totalPoints, position: 0 };
-  });
-  rankStandings(standingsRows);
+  const standingsRows = buildStandingsRowsForSeason(items, seasonNumber, driverItems);
 
   // ---- upgrade tracker ----
   const legendItem = one(itemTypes.UPGRADETRACKER_LEGEND) || {};
@@ -99,6 +79,7 @@ function assembleData(items, viewedSeason) {
     const budget = (seasonItem.baseTeamBudget || 0) + sponsorFunding(sponsors, row.sponsor) + (row.modification || 0);
     const spent = (row.upgrades || []).reduce((sum, p) => sum + (p != null ? computeUpgradeCost(upgradeParts, p) : 0), 0);
     return {
+      driverId,
       driver: driver.driver,
       sponsor: row.sponsor || null,
       budget,
@@ -107,6 +88,34 @@ function assembleData(items, viewedSeason) {
       remainingBudget: budget - spent,
     };
   });
+
+  // A driver's row is "out of compliance" when a higher-priority driver
+  // (see server/db/priority.js — priority comes from the previous season's
+  // final standings) has since claimed a part this driver is also holding,
+  // pushing total claims for that part past its countAvailable. This is
+  // never stored — recomputed fresh every read, same as budget above —
+  // so it can flip on its own as other drivers make their picks.
+  const complianceIssuesByDriver = computeCompliance(items, seasonNumber, driverItems, upgradeEntries, upgradeParts);
+  for (const entry of upgradeEntries) {
+    const issues = complianceIssuesByDriver.get(entry.driverId) || [];
+    entry.outOfCompliance = issues.length > 0;
+    entry.complianceIssues = issues;
+  }
+
+  // Inventory's "available count" isn't stored — it's the admin-set stock
+  // total minus however many of that part are currently assigned across
+  // this season's Upgrade Tracker, so a driver picking a part immediately
+  // (and automatically) lowers what everyone else sees as available.
+  const usedCountByPart = {};
+  for (const entry of upgradeEntries) {
+    for (const p of entry.upgrades) {
+      if (p != null) usedCountByPart[p] = (usedCountByPart[p] || 0) + 1;
+    }
+  }
+  const upgradePartsWithAvailability = upgradeParts.map((u) => ({
+    ...u,
+    availableCount: Math.max(0, (u.countAvailable || 0) - (usedCountByPart[u.partNumber] || 0)),
+  }));
 
   // ---- ficc backlog proposals: driver-linked rows first (in driver order), then freeform ----
   const driverProposals = driverIds.map((driverId) => {
@@ -143,6 +152,8 @@ function assembleData(items, viewedSeason) {
       legends: seasonItem.legends,
       baseTeamBudget: seasonItem.baseTeamBudget,
       schedule: seasonItem.schedule || [],
+      allowedTiers: seasonItem.allowedTiers || [],
+      disallowedTypes: seasonItem.disallowedTypes || [],
     },
     // All seasons that exist (for a season switcher) plus which one is
     // "current" (the default/write target) vs. "viewed" (what this
@@ -157,7 +168,7 @@ function assembleData(items, viewedSeason) {
       proposals: [...driverProposals, ...freeformProposals],
     },
     standings: { raceLabels, drivers: standingsRows, pointsTable },
-    inventory: { upgrades: upgradeParts, sponsors },
+    inventory: { upgrades: upgradePartsWithAvailability, sponsors },
     upgradeTracker: { rule: legendItem.rule || "", entries: upgradeEntries, legend: legendItem.legend || [] },
     hallOfFame: {
       seasonLog: (one(itemTypes.HALLOFFAME_SEASONLOG) || {}).items || [],

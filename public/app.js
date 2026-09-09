@@ -87,6 +87,13 @@ function textareaInput(value, onChange, rows = 3) {
   return ta;
 }
 
+function checkboxInput(checked, onChange) {
+  const inp = h("input", { type: "checkbox" });
+  inp.checked = !!checked;
+  inp.addEventListener("change", () => onChange(inp.checked));
+  return inp;
+}
+
 function selectInput(value, options, onChange) {
   const sel = h("select");
   for (const opt of options) {
@@ -100,19 +107,36 @@ function selectInput(value, options, onChange) {
   return sel;
 }
 
+// Depleted parts are still selectable — availability alone doesn't decide
+// who gets a part, priority does (see server/db/priority.js). A driver who
+// outranks the part's current lowest-priority holder can still legitimately
+// claim it, bumping that holder into "out of compliance" rather than being
+// blocked here.
 function upgradeSelect(value, onChange) {
   const sel = h("select");
   sel.appendChild(h("option", { value: "" }, "— none —"));
+  // Season rules (Card Restrictions, below the Upgrade Tracker) remove
+  // banned tiers/types from the option list entirely — except the part
+  // already sitting in this slot, which stays visible even if a rule
+  // change makes it no longer pickable, so the select never shows a value
+  // with no matching option.
+  const allowedTiers = DATA.season.allowedTiers || [];
+  const disallowedTypes = new Set(DATA.season.disallowedTypes || []);
   const groups = {};
   for (const u of DATA.inventory.upgrades) {
+    const isCurrent = value != null && String(u.partNumber) === String(value);
+    const tierBanned = allowedTiers.length > 0 && !allowedTiers.includes(String(u.tier));
+    const typeBanned = disallowedTypes.has(u.type);
+    if ((tierBanned || typeBanned) && !isCurrent) continue;
     (groups[u.type] ||= []).push(u);
   }
   for (const [type, list] of Object.entries(groups)) {
     const og = h("optgroup", { label: type });
     for (const u of list) {
+      const isCurrent = value != null && String(u.partNumber) === String(value);
       const label = `#${u.partNumber} · ${u.tier} · ${typeof u.cost === "number" ? fmtMoney(u.cost) : u.cost}`;
       const o = h("option", { value: String(u.partNumber) }, label);
-      if (value != null && String(u.partNumber) === String(value)) o.selected = true;
+      if (isCurrent) o.selected = true;
       og.appendChild(o);
     }
     sel.appendChild(og);
@@ -216,7 +240,11 @@ async function apiRequest(method, url, body) {
     throw new Error("Session expired");
   }
   const responseBody = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(responseBody.error || `Request failed (${res.status})`);
+  if (!res.ok) {
+    const err = new Error(responseBody.error || `Request failed (${res.status})`);
+    err.status = res.status;
+    throw err;
+  }
   return responseBody;
 }
 
@@ -240,8 +268,19 @@ async function runSave(key, fn) {
     pendingSaveCount = Math.max(0, pendingSaveCount - 1);
   } catch (err) {
     console.error(`Save failed for "${key}":`, err.message);
-    setSaveState("error");
     pendingSaveCount = Math.max(0, pendingSaveCount - 1);
+    // A 4xx means the request itself is invalid (e.g. a priority-aware
+    // upgrade-pick rejection) — retrying it verbatim every 2s would just
+    // fail forever. Give up, show why, and resync so the optimistic edit
+    // that caused it reverts to what the server actually has stored.
+    if (err.status >= 400 && err.status < 500) {
+      setSaveState("error");
+      const el = document.getElementById("save-state");
+      if (el) { el.textContent = err.message; el.title = err.message; }
+      refreshData();
+      return;
+    }
+    setSaveState("error");
     saveTimers.set(key, { timer: setTimeout(() => runSave(key, fn), 2000), fn });
     return;
   }
@@ -281,11 +320,16 @@ function savePointsTable() {
   scheduleSave("points-table", () => apiPut(`/api/standings/points-table${seasonQuery()}`, { pointsTable: DATA.standings.pointsTable }));
 }
 
+// Compliance (who's "out of compliance" and why) is derived server-side
+// from *every* driver's current picks, not just this one's — so a save
+// here can change what another driver's row should show. Refetching after
+// a successful save is what makes that show up without a manual reload.
 function saveUpgradeTrackerRow(driverId) {
   const row = DATA.upgradeTracker.entries.find((e) => e.driverId === driverId);
-  scheduleSave(`upgrade-tracker:${driverId}`, () =>
-    apiPut(`/api/upgrade-tracker/${driverId}${seasonQuery()}`, { sponsor: row.sponsor, upgrades: row.upgrades, modification: row.modification })
-  );
+  scheduleSave(`upgrade-tracker:${driverId}`, async () => {
+    await apiPut(`/api/upgrade-tracker/${driverId}${seasonQuery()}`, { sponsor: row.sponsor, upgrades: row.upgrades, modification: row.modification });
+    await refreshData();
+  });
 }
 
 function saveUpgradeLegend() {
@@ -357,8 +401,14 @@ function saveHofMissedRaceLog() {
   scheduleSave("hof-missedrace", () => apiPut("/api/halloffame/missed-race-log", { items: DATA.hallOfFame.missedRaceLog }));
 }
 
+// Editing a part's stock (Count) changes everyone's availableCount and
+// upgrade-tracker compliance, not just this row — refetch after saving so
+// those derived values don't go stale until the next full reload.
 function saveUpgradePart(partNumber, fields) {
-  scheduleSave(`upgrade-part:${partNumber}`, () => apiPut(`/api/admin/upgrade-parts/${partNumber}`, fields));
+  scheduleSave(`upgrade-part:${partNumber}`, async () => {
+    await apiPut(`/api/admin/upgrade-parts/${partNumber}`, fields);
+    await refreshData();
+  });
 }
 
 function saveSponsor(sponsorId, fields) {
@@ -478,25 +528,32 @@ function renderStandings(container) {
   panel.appendChild(wrap);
   container.appendChild(panel);
 
-  if (allowed) {
-    const panel2 = h("div", { class: "panel" });
-    const details = h("details");
-    details.appendChild(h("summary", {}, "Points-per-position lookup table (edit to change scoring rules)"));
-    const table2 = h("table");
-    table2.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Position"), h("th", {}, "Points"))));
-    const tbody2 = h("tbody");
-    DATA.standings.pointsTable.forEach((row) => {
-      const tr = h("tr", { class: podiumClass("pos-ref-", row.position) });
-      const tdPos = h("td"); tdPos.appendChild(numberInput(row.position, (v) => { row.position = v; recomputeStandings(); renderActive(); savePointsTable(); }));
-      const tdPts = h("td"); tdPts.appendChild(numberInput(row.points, (v) => { row.points = v; recomputeStandings(); renderActive(); savePointsTable(); }));
-      tr.appendChild(tdPos); tr.appendChild(tdPts);
-      tbody2.appendChild(tr);
-    });
-    table2.appendChild(tbody2);
-    details.appendChild(table2);
-    panel2.appendChild(details);
-    container.appendChild(panel2);
-  }
+  // Visible to everyone (so drivers can see the scoring rules), editable
+  // only by admin.
+  const panel2 = h("div", { class: "panel" });
+  const details = h("details");
+  details.appendChild(h("summary", {}, "Points-per-position lookup table" + (allowed ? " (edit to change scoring rules)" : "")));
+  const table2 = h("table");
+  table2.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Position"), h("th", {}, "Points"))));
+  const tbody2 = h("tbody");
+  DATA.standings.pointsTable.forEach((row) => {
+    const tr = h("tr", { class: podiumClass("pos-ref-", row.position) });
+    const tdPos = h("td");
+    const tdPts = h("td");
+    if (allowed) {
+      tdPos.appendChild(numberInput(row.position, (v) => { row.position = v; recomputeStandings(); renderActive(); savePointsTable(); }));
+      tdPts.appendChild(numberInput(row.points, (v) => { row.points = v; recomputeStandings(); renderActive(); savePointsTable(); }));
+    } else {
+      tdPos.appendChild(document.createTextNode(String(row.position)));
+      tdPts.appendChild(document.createTextNode(String(row.points)));
+    }
+    tr.appendChild(tdPos); tr.appendChild(tdPts);
+    tbody2.appendChild(tr);
+  });
+  table2.appendChild(tbody2);
+  details.appendChild(table2);
+  panel2.appendChild(details);
+  container.appendChild(panel2);
 }
 
 // ---------- Race Results (read-only, race-by-race view of Standings' data) ----------
@@ -829,11 +886,11 @@ function recomputeUpgradeTracker() {
 
 function renderUpgradeTracker(container) {
   recomputeUpgradeTracker();
-  const allowed = isAdmin();
+  const admin = isAdmin();
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "Upgrade Tracker — Current Season"));
   if (DATA.upgradeTracker.rule) panel.appendChild(h("p", { class: "muted panel-note" }, DATA.upgradeTracker.rule));
-  if (!allowed) panel.appendChild(h("p", { class: "muted panel-note" }, "Sponsor and upgrade-card assignment is managed by the league admin."));
+  if (!admin) panel.appendChild(h("p", { class: "muted panel-note" }, "Sponsor and modification are managed by the league admin. Drivers can select their own upgrade parts below."));
   const wrap = h("div", { class: "table-scroll" });
   const table = h("table");
   const headRow = h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Sponsor"), h("th", {}, "Budget"));
@@ -847,16 +904,19 @@ function renderUpgradeTracker(container) {
     const tr = h("tr");
     tr.appendChild(h("td", {}, driverBadge(e.driver)));
     const sponsorTd = h("td");
-    if (allowed) {
+    if (admin) {
       sponsorTd.appendChild(selectInput(e.sponsor, ["", ...sponsorNames], (v) => { e.sponsor = v || null; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
     } else {
       sponsorTd.appendChild(document.createTextNode(e.sponsor || "—"));
     }
     tr.appendChild(sponsorTd);
     tr.appendChild(h("td", { class: "cell-computed" }, fmtMoney(e.budget)));
+    // A driver can pick their own upgrade parts (admin can pick anyone's);
+    // sponsor/modification stay admin-only above and below.
+    const canPickUpgrades = isSelfOrAdmin(e.driverId);
     e.upgrades.forEach((val, i) => {
       const td = h("td");
-      if (allowed) {
+      if (canPickUpgrades) {
         td.appendChild(upgradeSelect(val, (v) => { e.upgrades[i] = v; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
       } else {
         const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(val));
@@ -865,18 +925,91 @@ function renderUpgradeTracker(container) {
       tr.appendChild(td);
     });
     const modTd = h("td");
-    if (allowed) {
+    if (admin) {
       modTd.appendChild(numberInput(e.modification, (v) => { e.modification = v; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
     } else {
       modTd.appendChild(document.createTextNode(String(e.modification ?? 0)));
     }
     tr.appendChild(modTd);
     tr.appendChild(h("td", { class: "cell-computed" }, fmtMoney(e.remainingBudget)));
+    if (e.outOfCompliance) tr.classList.add("row-noncompliant");
     tbody.appendChild(tr);
+
+    if (e.outOfCompliance) {
+      const message = e.complianceIssues
+        .map((issue) => `Part #${issue.partNumber} (${issue.partType}) is oversubscribed — ${issue.higherPriorityCount} higher-priority driver(s) also selected it.`)
+        .join(" ");
+      const detailTd = h("td", { colspan: String(5 + MAX_UPGRADE_SLOTS) }, h("span", { class: "compliance-icon" }, "!"), " " + message);
+      tbody.appendChild(h("tr", { class: "compliance-detail-row" }, detailTd));
+    }
   }
   table.appendChild(tbody);
   wrap.appendChild(table);
   panel.appendChild(wrap);
+  container.appendChild(panel);
+
+  renderCardRestrictions(container);
+}
+
+// Season rule config for which upgrade parts are pickable at all — an
+// inclusion list for tiers (empty = no restriction) and an exclusion list
+// for types (empty = none banned), stored on the SEASON item since future
+// seasons are expected to set different rules. Visible to everyone (so
+// drivers know why a part is missing from their dropdown), editable only
+// by admin. upgradeSelect() is what actually applies these.
+function saveCardRestrictions(fields) {
+  saveSeasonField(fields);
+}
+
+function renderCardRestrictions(container) {
+  const admin = isAdmin();
+  const panel = h("div", { class: "panel" });
+  panel.appendChild(h("h2", {}, "Card Restrictions"));
+  panel.appendChild(h("p", { class: "muted panel-note" },
+    admin
+      ? "Uncheck a tier or type to remove it from everyone's Upgrade Tracker dropdowns this season."
+      : "Season rules set by the league admin — unchecked tiers/types don't appear as Upgrade Tracker options."
+  ));
+
+  const tiers = [...new Set(DATA.inventory.upgrades.map((u) => String(u.tier)))].sort();
+  const types = [...new Set(DATA.inventory.upgrades.map((u) => u.type))].sort();
+  const allowedTiers = new Set(DATA.season.allowedTiers && DATA.season.allowedTiers.length ? DATA.season.allowedTiers : tiers);
+  const disallowedTypes = new Set(DATA.season.disallowedTypes || []);
+
+  // Every checkbox here means "checked = currently allowed", regardless of
+  // whether it's backed by an inclusion list (tiers) or exclusion list
+  // (types) — keeps the two rows consistent to read even though they're
+  // stored as opposite kinds of list.
+  function checkboxRow(label, options, isAllowed, setAllowed) {
+    const row = h("div", { class: "restriction-row" });
+    row.appendChild(h("div", { class: "restriction-row-label" }, label));
+    const list = h("div", { class: "restriction-checkboxes" });
+    for (const opt of options) {
+      const lbl = h("label", { class: "restriction-checkbox" });
+      const cb = checkboxInput(isAllowed(opt), (checked) => setAllowed(opt, checked));
+      if (!admin) cb.disabled = true;
+      lbl.appendChild(cb);
+      lbl.appendChild(document.createTextNode(opt));
+      list.appendChild(lbl);
+    }
+    row.appendChild(list);
+    return row;
+  }
+
+  panel.appendChild(checkboxRow("Tiers", tiers, (t) => allowedTiers.has(t), (t, checked) => {
+    if (checked) allowedTiers.add(t); else allowedTiers.delete(t);
+    DATA.season.allowedTiers = [...allowedTiers];
+    renderActive();
+    saveCardRestrictions({ allowedTiers: DATA.season.allowedTiers });
+  }));
+
+  panel.appendChild(checkboxRow("Types", types, (t) => !disallowedTypes.has(t), (t, checked) => {
+    if (checked) disallowedTypes.delete(t); else disallowedTypes.add(t);
+    DATA.season.disallowedTypes = [...disallowedTypes];
+    renderActive();
+    saveCardRestrictions({ disallowedTypes: DATA.season.disallowedTypes });
+  }));
+
   container.appendChild(panel);
 }
 
@@ -884,12 +1017,68 @@ function renderUpgradeTracker(container) {
 // Admin can edit existing rows (adding/removing parts or sponsors isn't
 // wired up yet); drivers see the same table read-only.
 const invFilter = { search: "", type: "", tier: "" };
+// Part numbers whose card image is currently expanded — module-level so the
+// open/closed state survives a filter change or an admin edit, both of
+// which call renderInventoryTableInto() and rebuild every row from scratch.
+const invExpanded = new Set();
+// Current column sort — key is null until a header is clicked, meaning
+// "server order" (by partNumber). Not persisted across page loads.
+const invSort = { key: null, dir: 1 };
+// Conventional tier ranking (best to worst) for sorting; anything outside
+// this set (e.g. an unranked "x") sorts after all known tiers.
+const TIER_RANK = { S: 0, A: 1, B: 2, C: 3, D: 4, F: 5 };
+
+function partCardImagePath(partNumber) {
+  return `/images/cards/${partNumber}_cropped.png`;
+}
+
+function invSortedRows(rows) {
+  if (!invSort.key) return rows;
+  const { key, dir } = invSort;
+  const sorted = [...rows].sort((a, b) => {
+    if (key === "type") return String(a.type).localeCompare(String(b.type)) * dir;
+    if (key === "partNumber") return (a.partNumber - b.partNumber) * dir;
+    if (key === "tier") {
+      const rankA = TIER_RANK[a.tier] ?? 6, rankB = TIER_RANK[b.tier] ?? 6;
+      return (rankA - rankB || String(a.tier).localeCompare(String(b.tier))) * dir;
+    }
+    if (key === "cost") {
+      const costA = typeof a.cost === "number" ? a.cost : -Infinity;
+      const costB = typeof b.cost === "number" ? b.cost : -Infinity;
+      return (costA - costB) * dir;
+    }
+    if (key === "availableCount") {
+      const availA = a.availableCount ?? a.countAvailable ?? 0;
+      const availB = b.availableCount ?? b.countAvailable ?? 0;
+      return (availA - availB) * dir;
+    }
+    return 0;
+  });
+  return sorted;
+}
 
 function renderInventoryTableInto(holder) {
   holder.innerHTML = "";
   const allowed = isAdmin();
   const table = h("table");
-  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Type"), h("th", {}, "Part #"), h("th", {}, "Effect"), h("th", {}, "Count"), h("th", {}, "Tier"), h("th", {}, "Cost"))));
+  function sortableHeader(label, key) {
+    const active = invSort.key === key;
+    const th = h("th", { class: "sortable" + (active ? " sorted" : "") }, label + (active ? (invSort.dir === 1 ? " ▲" : " ▼") : ""));
+    th.addEventListener("click", () => {
+      if (invSort.key === key) invSort.dir *= -1; else { invSort.key = key; invSort.dir = 1; }
+      renderInventoryTableInto(holder);
+    });
+    return th;
+  }
+  table.appendChild(h("thead", {}, h("tr", {},
+    h("th", { class: "inv-chevron-col" }),
+    sortableHeader("Type", "type"),
+    sortableHeader("Part #", "partNumber"),
+    h("th", {}, "Count"),
+    sortableHeader("Available", "availableCount"),
+    sortableHeader("Tier", "tier"),
+    sortableHeader("Cost", "cost")
+  )));
   const tbody = h("tbody");
   const filtered = DATA.inventory.upgrades.filter((u) => {
     if (invFilter.type && u.type !== invFilter.type) return false;
@@ -900,16 +1089,22 @@ function renderInventoryTableInto(holder) {
     }
     return true;
   });
-  for (const u of filtered) {
-    const tr = h("tr");
+  for (const u of invSortedRows(filtered)) {
+    const tr = h("tr", { class: "inv-row" });
+    const chevronTd = h("td", { class: "inv-chevron-col" }, h("span", { class: "inv-chevron" }, "▸"));
+    const partTd = h("td", { class: "cell-computed inv-part" }, `#${u.partNumber}`);
+    const available = u.availableCount ?? u.countAvailable ?? 0;
+    tr.appendChild(chevronTd);
     if (allowed) {
       const tdType = h("td"); tdType.appendChild(textInput(u.type, (v) => { u.type = v; saveUpgradePart(u.partNumber, { type: v }); }));
       tr.appendChild(tdType);
-      tr.appendChild(h("td", { class: "cell-computed" }, String(u.partNumber)));
-      const tdEffect = h("td"); tdEffect.appendChild(textInput(u.effect, (v) => { u.effect = v; saveUpgradePart(u.partNumber, { effect: v }); }));
-      tr.appendChild(tdEffect);
-      const tdCount = h("td"); tdCount.appendChild(numberInput(u.countAvailable, (v) => { u.countAvailable = v; saveUpgradePart(u.partNumber, { countAvailable: v }); }));
+      tr.appendChild(partTd);
+      const tdCount = h("td");
+      tdCount.appendChild(numberInput(u.countAvailable, (v) => { u.countAvailable = v; saveUpgradePart(u.partNumber, { countAvailable: v }); }));
       tr.appendChild(tdCount);
+      // Available is purely derived (stock minus however many drivers have
+      // currently selected this part) — no one edits it directly, ever.
+      tr.appendChild(h("td", { class: available === 0 ? "inv-depleted" : "" }, String(available)));
       const tdTier = h("td");
       const tierInput = textInput(u.tier, (v) => { u.tier = v; saveUpgradePart(u.partNumber, { tier: v }); renderInventoryTableInto(holder); });
       tierInput.classList.add("tier-" + u.tier);
@@ -919,13 +1114,37 @@ function renderInventoryTableInto(holder) {
       tr.appendChild(tdCost);
     } else {
       tr.appendChild(h("td", {}, u.type));
-      tr.appendChild(h("td", { class: "cell-computed" }, String(u.partNumber)));
-      tr.appendChild(h("td", {}, u.effect || ""));
+      tr.appendChild(partTd);
       tr.appendChild(h("td", {}, String(u.countAvailable ?? "")));
+      tr.appendChild(h("td", { class: available === 0 ? "inv-depleted" : "" }, String(available)));
       tr.appendChild(h("td", {}, h("span", { class: "badge tier-" + u.tier }, String(u.tier))));
       tr.appendChild(h("td", {}, typeof u.cost === "number" ? fmtMoney(u.cost) : String(u.cost)));
     }
     tbody.appendChild(tr);
+
+    const detailInner = h("div", { class: "inv-detail-inner" });
+    const img = h("img", { src: partCardImagePath(u.partNumber), alt: `Part #${u.partNumber} card`, loading: "lazy" });
+    img.addEventListener("error", () => {
+      detailInner.innerHTML = "";
+      detailInner.appendChild(h("p", { class: "muted" }, "No card image available."));
+    });
+    detailInner.appendChild(img);
+    const detailWrap = h("div", { class: "inv-detail" }, detailInner);
+    const detailTd = h("td", { colspan: "7" }, detailWrap);
+    const detailTr = h("tr", { class: "inv-detail-row" }, detailTd);
+    tbody.appendChild(detailTr);
+
+    if (invExpanded.has(u.partNumber)) {
+      tr.classList.add("open");
+      detailWrap.classList.add("open");
+    }
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("input, select, button, a")) return;
+      const open = !invExpanded.has(u.partNumber);
+      if (open) invExpanded.add(u.partNumber); else invExpanded.delete(u.partNumber);
+      tr.classList.toggle("open", open);
+      detailWrap.classList.toggle("open", open);
+    });
   }
   table.appendChild(tbody);
   holder.appendChild(table);
@@ -942,8 +1161,8 @@ function renderInventory(container) {
   const searchInp = h("input", { type: "text", placeholder: "Search type or effect…" });
   searchInp.value = invFilter.search;
   searchInp.addEventListener("input", () => { invFilter.search = searchInp.value; renderInventoryTableInto(holder); });
-  const typeSel = selectInput(invFilter.type, ["All", ...types], (v) => { invFilter.type = v; renderInventoryTableInto(holder); });
-  const tierSel = selectInput(invFilter.tier, ["All", ...tiers], (v) => { invFilter.tier = v; renderInventoryTableInto(holder); });
+  const typeSel = selectInput(invFilter.type, ["All", ...types], (v) => { invFilter.type = v === "All" ? "" : v; renderInventoryTableInto(holder); });
+  const tierSel = selectInput(invFilter.tier, ["All", ...tiers], (v) => { invFilter.tier = v === "All" ? "" : v; renderInventoryTableInto(holder); });
   filters.appendChild(searchInp); filters.appendChild(typeSel); filters.appendChild(tierSel);
   panel.appendChild(filters);
   const holder = h("div", { class: "table-scroll" });

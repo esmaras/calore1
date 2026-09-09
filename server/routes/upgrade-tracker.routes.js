@@ -1,7 +1,7 @@
 const express = require("express");
 const repo = require("../db/repo");
 const { keys, itemTypes } = require("../db/keys");
-const { requireAdmin } = require("../auth/middleware");
+const { requireAdmin, requireSelfOrAdmin } = require("../auth/middleware");
 const { resolveSeason } = require("../db/currentSeason");
 
 const router = express.Router();
@@ -17,11 +17,24 @@ router.put("/legend", requireAdmin, async (req, res) => {
   res.json(updated);
 });
 
-// Sponsor/upgrade-card assignment is admin/referee-controlled — drivers
-// don't self-assign upgrades. Budget/remainingBudget are never accepted
-// here; they're always recomputed server-side in assemble.js.
-router.put("/:driverId", requireAdmin, async (req, res) => {
+// Sponsor/modification stay admin/referee-controlled — a driver hitting
+// this route (requireSelfOrAdmin lets them touch only their own row) can
+// change their own upgrade picks but any sponsor/modification they send is
+// silently ignored rather than applied, so the shared client save function
+// (which always posts all three fields) can't smuggle those through.
+// Budget/remainingBudget are never accepted here; they're always
+// recomputed server-side in assemble.js.
+//
+// Deliberately no priority/availability check here — a pick always saves.
+// Whether it's actually defensible given priority is a read-time, derived
+// question (see computeCompliance in server/db/priority.js, wired in by
+// assembleData): a driver who doesn't have priority for a part sees their
+// own row flagged non-compliant immediately, and a driver who gets bumped
+// later by a higher-priority claim sees the same flag, without either
+// pick ever being blocked or silently reverted.
+router.put("/:driverId", requireSelfOrAdmin("driverId"), async (req, res) => {
   const { driverId } = req.params;
+  const isAdmin = req.user.role === "admin";
   const { sponsor, upgrades, modification } = req.body || {};
   if (upgrades !== undefined && !Array.isArray(upgrades)) {
     return res.status(400).json({ error: "upgrades must be an array" });
@@ -32,14 +45,15 @@ router.put("/:driverId", requireAdmin, async (req, res) => {
 
   const season = await resolveSeason(req.query.season);
   const existing = (await repo.getItem(keys.upgradeTracker(driverId, season))) || { sponsor: null, upgrades: [], modification: 0 };
+
   const item = {
     ...keys.upgradeTracker(driverId, season),
     itemType: itemTypes.UPGRADETRACKER,
     driverId,
     season,
-    sponsor: sponsor !== undefined ? sponsor : existing.sponsor,
+    sponsor: isAdmin && sponsor !== undefined ? sponsor : existing.sponsor,
     upgrades: upgrades !== undefined ? upgrades : existing.upgrades,
-    modification: modification !== undefined ? modification : existing.modification,
+    modification: isAdmin && modification !== undefined ? modification : existing.modification,
   };
   await repo.putItem(item);
   res.json(item);
