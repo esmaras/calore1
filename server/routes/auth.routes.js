@@ -9,7 +9,7 @@ const router = express.Router();
 
 // Kept in sync with the client's page catalog (public/app.js, HOME_PAGE_CATALOG)
 // — the set of tabs that can be featured on a user's Home bento grid.
-const HOME_CARD_IDS = new Set(["standings", "drivers", "upgrades", "inventory", "season", "techregs", "ficc", "offseason", "hof", "lore"]);
+const HOME_CARD_IDS = new Set(["standings", "race-results", "drivers", "upgrades", "inventory", "season", "techregs", "ficc", "offseason", "hof", "lore"]);
 const MAX_HOME_CARDS = 6;
 
 router.post("/login", async (req, res) => {

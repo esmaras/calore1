@@ -54,6 +54,17 @@ function podiumClass(prefix, position) {
   return prefix + (position >= 1 && position <= 3 ? position : "other");
 }
 
+function ordinal(n) {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return n + "th";
+  switch (n % 10) {
+    case 1: return n + "st";
+    case 2: return n + "nd";
+    case 3: return n + "rd";
+    default: return n + "th";
+  }
+}
+
 // ---------- editable field helpers ----------
 function textInput(value, onChange) {
   const inp = h("input", { type: "text" });
@@ -486,6 +497,58 @@ function renderStandings(container) {
     panel2.appendChild(details);
     container.appendChild(panel2);
   }
+}
+
+// ---------- Race Results (read-only, race-by-race view of Standings' data) ----------
+// Builds one race's finishing order, podium (top 3) visually separated
+// from the rest of the field. Shared by the full tab and the Home bento
+// card so both stay in sync with a single layout.
+function buildRaceResultBlock(label, raceIndex) {
+  const finishers = DATA.standings.drivers
+    .filter((d) => d.races[raceIndex] != null)
+    .map((d) => ({ driver: d.driver, pos: d.races[raceIndex] }))
+    .sort((a, b) => a.pos - b.pos);
+
+  const block = h("div", { class: "race-result-block" });
+  block.appendChild(h("h3", {}, label));
+  if (finishers.length === 0) {
+    block.appendChild(h("p", { class: "muted" }, "No results yet."));
+    return block;
+  }
+
+  const podium = finishers.filter((f) => f.pos <= 3);
+  const rest = finishers.filter((f) => f.pos > 3);
+
+  const podiumRow = h("div", { class: "race-podium" });
+  podium.forEach((f) => {
+    podiumRow.appendChild(
+      h("div", { class: "race-podium-item" },
+        h("span", { class: "race-podium-rank " + podiumClass("pos-", f.pos) }, ordinal(f.pos)),
+        driverBadge(f.driver))
+    );
+  });
+  block.appendChild(podiumRow);
+
+  if (rest.length > 0) {
+    const list = h("div", { class: "race-field-list" });
+    rest.forEach((f) => {
+      list.appendChild(
+        h("div", { class: "race-field-row" }, h("span", { class: "race-field-pos" }, ordinal(f.pos)), driverBadge(f.driver))
+      );
+    });
+    block.appendChild(list);
+  }
+  return block;
+}
+
+function renderRaceResults(container) {
+  recomputeStandings();
+
+  DATA.standings.raceLabels.forEach((label, i) => {
+    const panel = h("div", { class: "panel" });
+    panel.appendChild(buildRaceResultBlock(label || `Race ${i + 1}`, i));
+    container.appendChild(panel);
+  });
 }
 
 // ---------- credentials banner ----------
@@ -1506,6 +1569,15 @@ function buildStandingsSummary() {
   return wrap;
 }
 
+function buildRaceResultsSummary() {
+  recomputeStandings();
+  const wrap = h("div", { class: "race-results-summary" });
+  DATA.standings.raceLabels.forEach((label, i) => {
+    wrap.appendChild(buildRaceResultBlock(label || `Race ${i + 1}`, i));
+  });
+  return wrap;
+}
+
 function buildDriversSummary() {
   // A CSS class, not an inline style: the mobile bento layout hides a
   // collapsed card's content with `.bento-card > *:not(h3) { display:
@@ -1623,6 +1695,7 @@ function buildLoreSummary() {
 // Kept in sync with HOME_CARD_IDS in server/routes/auth.routes.js.
 const HOME_PAGE_CATALOG = [
   { id: "standings", title: "Standings", build: buildStandingsSummary },
+  { id: "race-results", title: "Race Results", build: buildRaceResultsSummary },
   { id: "drivers", title: "Drivers", build: buildDriversSummary },
   { id: "upgrades", title: "Upgrade Tracker", build: buildUpgradesSummary },
   { id: "inventory", title: "Inventory", build: buildInventorySummary },
@@ -1746,6 +1819,7 @@ function renderHome(container) {
 const TABS = [
   { id: "home", label: "Home", render: renderHome },
   { id: "standings", label: "Standings", render: renderStandings },
+  { id: "race-results", label: "Race Results", render: renderRaceResults },
   { id: "drivers", label: "Drivers", render: renderDrivers },
   { id: "upgrades", label: "Upgrade Tracker", render: renderUpgradeTracker },
   { id: "inventory", label: "Inventory", render: renderInventory },
