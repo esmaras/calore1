@@ -987,7 +987,10 @@ function renderCardRestrictions(container) {
       : "Season rules set by the league admin — unchecked tiers/types don't appear as Upgrade Tracker options."
   ));
 
-  const tiers = [...new Set(DATA.inventory.upgrades.map((u) => String(u.tier)))].sort();
+  // Same tier ranking as the Upgrade Tracker dropdowns (S first), not
+  // alphabetical — alphabetical order would put "A" before "S".
+  const tiers = [...new Set(DATA.inventory.upgrades.map((u) => String(u.tier)))]
+    .sort((a, b) => (TIER_RANK[a] ?? 6) - (TIER_RANK[b] ?? 6));
   const types = [...new Set(DATA.inventory.upgrades.map((u) => u.type))].sort();
   const allowedTiers = new Set(DATA.season.allowedTiers && DATA.season.allowedTiers.length ? DATA.season.allowedTiers : tiers);
   const disallowedTypes = new Set(DATA.season.disallowedTypes || []);
