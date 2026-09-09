@@ -113,7 +113,9 @@ function selectInput(value, options, onChange) {
 // claim it, bumping that holder into "out of compliance" rather than being
 // blocked here.
 function upgradeSelect(value, onChange) {
-  const sel = h("select");
+  // Monospaced (see .upgrade-select in style.css) so the padded columns
+  // below actually line up into a table instead of ragged inline text.
+  const sel = h("select", { class: "upgrade-select" });
   sel.appendChild(h("option", { value: "" }, "— none —"));
   // Season rules (Card Restrictions, below the Upgrade Tracker) remove
   // banned tiers/types from the option list entirely — except the part
@@ -130,11 +132,25 @@ function upgradeSelect(value, onChange) {
     if ((tierBanned || typeBanned) && !isCurrent) continue;
     (groups[u.type] ||= []).push(u);
   }
+
+  // Column widths sized off the full part list (not just what's visible in
+  // this particular select) so padding stays consistent across every
+  // Upgrade Tracker dropdown regardless of season restrictions filtering
+  // some of them out.
+  const costText = (u) => (typeof u.cost === "number" ? fmtMoney(u.cost) : String(u.cost));
+  const partWidth = Math.max(...DATA.inventory.upgrades.map((u) => String(u.partNumber).length + 1));
+  const costWidth = Math.max(...DATA.inventory.upgrades.map((u) => costText(u).length));
+
   for (const [type, list] of Object.entries(groups)) {
     const og = h("optgroup", { label: type });
-    for (const u of list) {
+    // Best tier first (S, then A/B/C/D/F, unranked last).
+    const sorted = [...list].sort((a, b) => (TIER_RANK[a.tier] ?? 6) - (TIER_RANK[b.tier] ?? 6) || a.partNumber - b.partNumber);
+    for (const u of sorted) {
       const isCurrent = value != null && String(u.partNumber) === String(value);
-      const label = `#${u.partNumber} · ${u.tier} · ${typeof u.cost === "number" ? fmtMoney(u.cost) : u.cost}`;
+      const partCol = `#${u.partNumber}`.padEnd(partWidth);
+      const tierCol = String(u.tier).padEnd(2);
+      const costCol = costText(u).padStart(costWidth);
+      const label = `${partCol} ${tierCol} ${costCol}`;
       const o = h("option", { value: String(u.partNumber) }, label);
       if (isCurrent) o.selected = true;
       og.appendChild(o);

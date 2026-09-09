@@ -158,6 +158,13 @@ input[type="text"], input[type="number"], input[type="password"], textarea, sele
   font-family: inherit;
 }
 input[type="number"] { width: 90px; }
+
+/* Upgrade Tracker part-picker: labels are hand-padded into Part#/Tier/Cost
+   columns (see upgradeSelect() in app.js) — only lines up as a table in a
+   monospaced font, so this overrides the inherited sans-serif. */
+.upgrade-select, .upgrade-select option, .upgrade-select optgroup {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
 textarea { resize: vertical; min-height: 2.4em; }
 input:focus, textarea:focus, select:focus {
   outline: none;
@@ -257,7 +264,16 @@ th.sortable.sorted { color: var(--text); }
   font-weight: 600;
   padding-top: 4px;
 }
-.restriction-checkboxes { display: flex; flex-wrap: wrap; gap: 6px 16px; flex: 1; }
+/* Grid instead of flex-wrap — with flex-wrap, items only wrap based on
+   their own text width, so a second row of longer/shorter labels never
+   lines up under the row above. A grid forces every item into the same
+   column width, so checkboxes stay aligned vertically across rows. */
+.restriction-checkboxes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 16px;
+  flex: 1;
+}
 .restriction-checkbox {
   display: inline-flex;
   align-items: center;
