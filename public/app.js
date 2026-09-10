@@ -237,6 +237,15 @@ function isSelfOrAdmin(driverId) {
 const saveTimers = new Map(); // key -> { timer, fn }
 let pendingSaveCount = 0;
 
+// driverId -> message, for an Upgrade Tracker save rejected outright (e.g.
+// the one-type-per-driver rule in server/routes/upgrade-tracker.routes.js).
+// Kept separate from DATA (which a rejected save never actually reaches)
+// so renderUpgradeTracker can flag that driver's row the same way it
+// already flags an oversubscribed pick — a highlighted row plus a "!"
+// detail line — instead of the generic top-bar save error. Cleared on
+// that driver's next successful save.
+const upgradeTrackerRowErrors = new Map();
+
 function setSaveState(state) {
   const elS = document.getElementById("save-state");
   elS.classList.remove("saving", "saved", "error");
@@ -343,7 +352,20 @@ function savePointsTable() {
 function saveUpgradeTrackerRow(driverId) {
   const row = DATA.upgradeTracker.entries.find((e) => e.driverId === driverId);
   scheduleSave(`upgrade-tracker:${driverId}`, async () => {
-    await apiPut(`/api/upgrade-tracker/${driverId}${seasonQuery()}`, { sponsor: row.sponsor, upgrades: row.upgrades, modification: row.modification });
+    try {
+      await apiPut(`/api/upgrade-tracker/${driverId}${seasonQuery()}`, { sponsor: row.sponsor, upgrades: row.upgrades, modification: row.modification });
+    } catch (err) {
+      // A rejected pick (e.g. two of the same upgrade type) — flagged on
+      // the row itself (see renderUpgradeTracker) rather than only in the
+      // top-bar text, so it reads the same as an oversubscribed pick.
+      // runSave still shows the generic save-failed indicator and, for a
+      // 4xx, refetches DATA to revert the optimistic edit — this just
+      // remembers why, since that revert would otherwise wipe any local
+      // trace of it.
+      if (err.status >= 400 && err.status < 500) upgradeTrackerRowErrors.set(driverId, err.message);
+      throw err;
+    }
+    upgradeTrackerRowErrors.delete(driverId);
     await refreshData();
   });
 }
@@ -1253,14 +1275,24 @@ function renderUpgradeTracker(container) {
     }
     tr.appendChild(modTd);
     tr.appendChild(h("td", { class: "cell-computed" }, fmtMoney(e.remainingBudget)));
-    if (e.outOfCompliance) tr.classList.add("row-noncompliant");
+    const rowError = upgradeTrackerRowErrors.get(e.driverId);
+    if (e.outOfCompliance || rowError) tr.classList.add("row-noncompliant");
     tbody.appendChild(tr);
 
+    // Same "!" detail-row treatment for both kinds of Upgrade Tracker
+    // error — an oversubscribed pick (allowed to save, flagged after the
+    // fact) and a rejected pick like two of the same upgrade type (never
+    // saved at all, see saveUpgradeTrackerRow) — so they read the same way
+    // regardless of which check caught it.
     if (e.outOfCompliance) {
       const message = e.complianceIssues
         .map((issue) => `Part #${issue.partNumber} (${issue.partType}) is oversubscribed — ${issue.higherPriorityCount} higher-priority driver(s) also selected it.`)
         .join(" ");
       const detailTd = h("td", { colspan: String(7 + MAX_UPGRADE_SLOTS) }, h("span", { class: "compliance-icon" }, "!"), " " + message);
+      tbody.appendChild(h("tr", { class: "compliance-detail-row" }, detailTd));
+    }
+    if (rowError) {
+      const detailTd = h("td", { colspan: String(7 + MAX_UPGRADE_SLOTS) }, h("span", { class: "compliance-icon" }, "!"), " " + rowError);
       tbody.appendChild(h("tr", { class: "compliance-detail-row" }, detailTd));
     }
   }
