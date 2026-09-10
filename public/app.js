@@ -1037,46 +1037,54 @@ function renderAddDriverForm() {
 }
 
 // ---------- Upgrade Tracker ----------
-// Touch devices have no real :hover, so the "hover to reveal" card-zoom
-// effect (see .upgrade-zoom-trigger in style.css) needs a tap-based
-// fallback there instead — SUPPORTS_HOVER decides which one app.js wires
-// up. Checked once: a device's hover capability doesn't change mid-session.
-const SUPPORTS_HOVER = window.matchMedia("(hover: hover)").matches;
-
-function closeAllZoomTriggers(except) {
-  document.querySelectorAll(".upgrade-zoom-trigger.zoom-open").forEach((el) => {
+// Not gated on matchMedia("hover: hover") — that turned out to be an
+// unreliable signal for "will a tap here actually work": it reports true
+// on some hybrid trackpad+touchscreen devices, and (more commonly) on a
+// plain desktop browser window just narrowed to a mobile width without
+// real device/touch emulation turned on, and gating real functionality
+// on it meant taps silently did nothing in exactly those cases. Instead,
+// every card below uses Pointer Events and checks event.pointerType per
+// interaction — "mouse" gets hover-to-preview (pointerenter/pointerleave),
+// anything else (touch, pen, or a keyboard-triggered click, which reports
+// no pointer type at all) gets tap-to-toggle instead. Checking per-event
+// rather than guessing once per device is what lets both coexist without
+// fighting: a mouse's real hover state is never confused with a touch tap
+// that happens to also dispatch a synthetic hover-like event first.
+function closeAllZoomWraps(except) {
+  document.querySelectorAll(".upgrade-card-zoom-wrap.zoom-open").forEach((el) => {
     if (el !== except) el.classList.remove("zoom-open");
   });
 }
-if (!SUPPORTS_HOVER) {
-  // Tapping anywhere that isn't a zoom trigger closes whatever's open —
-  // tapping a trigger itself is handled by attachZoomCard below, which
-  // runs first (event bubbles from the trigger up to here).
-  document.addEventListener("click", (e) => {
-    if (!e.target.closest(".upgrade-zoom-trigger")) closeAllZoomTriggers(null);
-  });
-}
+// Tapping/clicking anywhere that isn't a zoom trigger closes whatever's
+// open. Tapping a trigger itself is handled by attachZoomCard below,
+// which runs first (pointerup fires, then click bubbles here) and closes
+// via its own toggle if the trigger's already open — so this only ever
+// needs to handle "somewhere else entirely" and never fights that toggle.
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".upgrade-zoom-trigger")) closeAllZoomWraps(null);
+});
 
-// Adds the actual zoomable card art (see .upgrade-card-zoom-wrap in
-// style.css) to `triggerEl`, which must be the element the card should
-// pop out from — either an always-visible 84px thumbnail (Upgrade
-// Tracker page) or a part-number badge with no visible thumbnail at all
-// (Home page). On devices with real hover this is pure CSS from here;
-// on touch devices, wires a tap to toggle it open/closed instead.
+// Adds the actual zoomable card art to `triggerEl`, which must be the
+// element the card should pop out from — either an always-visible 84px
+// thumbnail (Upgrade Tracker page) or a part-number badge with no
+// visible thumbnail at all (Home page). The popup (.upgrade-card-zoom-wrap
+// in style.css) is appended to <body>, not to `triggerEl` — a descendant
+// of a stacking-context-creating ancestor (e.g. the Home page's bento
+// cards, which use `isolation: isolate` for their own hover-gradient
+// effect) has its z-index trapped inside that ancestor's own local stack,
+// no matter how high the number is, which is why it was rendering under
+// the topbar there. Being a direct child of <body> sidesteps that
+// entirely. Shown/hidden and positioned purely via JS as a result (no
+// CSS :hover needed for it at all).
 function attachZoomCard(triggerEl, partNumber) {
   triggerEl.classList.add("upgrade-zoom-trigger");
   const img = h("img", { src: partCardImagePath(partNumber), alt: `Part #${partNumber} card`, loading: "lazy" });
   img.addEventListener("error", () => { img.style.display = "none"; });
   const zoomWrap = h("div", { class: "upgrade-card-zoom-wrap" }, img);
-  triggerEl.appendChild(zoomWrap);
+  document.body.appendChild(zoomWrap);
 
   // Centers the popup on the trigger's actual on-screen box, computed
-  // fresh each time. CSS's "no inset = fall back to the static position"
-  // trick for position:fixed (used before) gets unreliable once the
-  // trigger sits inside enough nested positioned/grid ancestors — as it
-  // does here (inside the row's collapsing grid wrapper) — landing the
-  // popup offset from the card it's supposed to be zooming. This is exact
-  // regardless of ancestor layout. See the paired
+  // fresh each time — exact regardless of ancestor layout. See the paired
   // "translate(-50%, -50%) scale(3)" in style.css, which centers the
   // (differently-sized) zoomed box on this same point.
   const positionZoom = () => {
@@ -1084,17 +1092,26 @@ function attachZoomCard(triggerEl, partNumber) {
     zoomWrap.style.left = `${rect.left + rect.width / 2}px`;
     zoomWrap.style.top = `${rect.top + rect.height / 2}px`;
   };
-  triggerEl.addEventListener("mouseenter", positionZoom);
 
-  if (!SUPPORTS_HOVER) {
-    triggerEl.addEventListener("click", (e) => {
-      if (e.target.closest("select, input, button, a")) return;
-      const wasOpen = triggerEl.classList.contains("zoom-open");
-      closeAllZoomTriggers(triggerEl);
-      if (!wasOpen) positionZoom();
-      triggerEl.classList.toggle("zoom-open", !wasOpen);
-    });
-  }
+  triggerEl.addEventListener("pointerenter", (e) => {
+    if (e.pointerType !== "mouse") return;
+    positionZoom();
+    zoomWrap.classList.add("zoom-open");
+  });
+  triggerEl.addEventListener("pointerleave", (e) => {
+    if (e.pointerType !== "mouse") return;
+    zoomWrap.classList.remove("zoom-open");
+  });
+  // pointerup (not click) — a genuine PointerEvent, so pointerType is
+  // always reliably set, unlike on the click event that follows it.
+  triggerEl.addEventListener("pointerup", (e) => {
+    if (e.target.closest("select, input, button, a")) return;
+    if (e.pointerType === "mouse") return; // mice already get hover above
+    const wasOpen = zoomWrap.classList.contains("zoom-open");
+    closeAllZoomWraps(zoomWrap);
+    zoomWrap.classList.toggle("zoom-open", !wasOpen);
+    if (!wasOpen) positionZoom();
+  });
 }
 
 function computeUpgradeCost(partNumber) {
@@ -1146,13 +1163,19 @@ function renderUpgradeTracker(container) {
   const sponsorNames = DATA.inventory.sponsors.map((s) => s.name);
   for (const e of DATA.upgradeTracker.entries) {
     const tr = h("tr", { class: "upgrade-row" });
-    if (!SUPPORTS_HOVER) {
-      tr.addEventListener("click", (ev) => {
-        if (ev.target.closest("select, input, button, a, .upgrade-zoom-trigger")) return;
-        const nowOpen = tr.classList.toggle("open");
-        if (!nowOpen) tr.querySelectorAll(".upgrade-zoom-trigger.zoom-open").forEach((el) => el.classList.remove("zoom-open"));
-      });
-    }
+    // Not gated on hover support (see the comment above closeAllZoomWraps)
+    // — always attached so a tap always works. Harmless for real mouse
+    // users too: :hover already reveals the row on its own, and a stray
+    // click just sets the same .open state :hover would've implied anyway.
+    tr.addEventListener("click", (ev) => {
+      if (ev.target.closest("select, input, button, a, .upgrade-zoom-trigger")) return;
+      tr.classList.toggle("open");
+      // Any zoomed card popup is a body-level floating element with no
+      // DOM relationship to this row (see attachZoomCard) — closing on
+      // any row open/close avoids one being left floating with no
+      // visible row underneath it.
+      closeAllZoomWraps(null);
+    });
     tr.appendChild(h("td", {}, driverBadge(e.driver)));
     const sponsorTd = h("td");
     if (admin) {
@@ -2462,6 +2485,11 @@ function toggleMobileNav() {
 }
 
 function renderActive() {
+  // attachZoomCard (see above) appends each card's zoom popup to <body>
+  // directly rather than under #tab-content, so clearing #tab-content
+  // below doesn't clean these up on its own — without this they'd pile
+  // up as orphans, one extra per card, on every re-render.
+  document.querySelectorAll(".upgrade-card-zoom-wrap").forEach((el) => el.remove());
   const content = document.getElementById("tab-content");
   content.innerHTML = "";
   const tab = TABS.find((t) => t.id === activeTab);

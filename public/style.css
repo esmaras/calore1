@@ -250,22 +250,21 @@ tr.upgrade-row.open .upgrade-cell-card-inner {
   overflow: visible;
 }
 
-/* Reusable "hover (or tap, on touch devices — see .zoom-open below and
-   SUPPORTS_HOVER in app.js) to pop up the real card art" trigger. Used on
-   both the Upgrade Tracker page (wrapping an always-visible 84px
-   thumbnail) and the Home page (wrapping a part-number badge with no
-   visible thumbnail at all) — in both cases the trigger itself never
-   changes size or position, only the nested .upgrade-card-zoom-wrap does,
-   and that's out of normal document flow (position:absolute, sized via
-   inset:0 to exactly cover the trigger) even before it's triggered, so
-   revealing it never reflows or shifts anything around it. */
+/* Reusable "hover (or tap, on touch devices — see SUPPORTS_HOVER in
+   app.js) to pop up the real card art" trigger. Used on both the Upgrade
+   Tracker page (wrapping an always-visible 84px thumbnail) and the Home
+   page (wrapping a part-number badge with no visible thumbnail at all) —
+   in both cases the trigger itself never changes size or position; the
+   popup (.upgrade-card-zoom-wrap) is a sibling of <body>, not a
+   descendant of the trigger (see attachZoomCard in app.js for why), so
+   revealing it never reflows or shifts anything around the trigger. */
 .upgrade-zoom-trigger {
-  position: relative;
+  cursor: zoom-in;
 }
 /* Just a positioning anchor sized to hug the thumbnail — without this the
    trigger div (a block element by default) would stretch to the full
-   cell width, making the invisible zoom-wrap overlay (and its hover/tap
-   hit area) cover way more than just the 84px thumbnail. */
+   cell width, making its hover/tap hit area cover way more than just the
+   84px thumbnail. */
 .upgrade-card-thumb-trigger {
   display: inline-block;
   margin-top: 8px;
@@ -278,14 +277,30 @@ tr.upgrade-row.open .upgrade-cell-card-inner {
   border: 1px solid var(--border);
   background: var(--bg-panel-2);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
-  cursor: zoom-in;
 }
+/* Always position:fixed and always a direct child of <body> (appended
+   there by attachZoomCard) — never nested inside the trigger, so it's
+   never subject to an ancestor's overflow clipping (e.g. the Upgrade
+   Tracker page's .table-scroll) or stacking-context containment (e.g.
+   the Home page's bento cards, which use `isolation: isolate` for their
+   own hover-gradient effect — z-index alone can't escape that, only
+   actually not being a descendant can). left/top are set by app.js to
+   the trigger's exact on-screen center; translate(-50%, -50%) below then
+   centers *this* box (whatever size it currently is) on that same point,
+   so the art stays centered on the small card even as it scales up. */
 .upgrade-card-zoom-wrap {
-  position: absolute;
-  inset: 0;
+  position: fixed;
+  left: 0;
+  top: 0;
   opacity: 0;
   pointer-events: none;
+  transform: translate(-50%, -50%) scale(1);
   transition: transform 0.2s ease, opacity 0.2s ease;
+  z-index: 9999;
+}
+.upgrade-card-zoom-wrap.zoom-open {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(3);
 }
 .upgrade-card-zoom-wrap img {
   display: block;
@@ -314,33 +329,10 @@ tr.upgrade-row.open .upgrade-cell-card-inner {
   pointer-events: none;
   transition: opacity 0.2s ease;
 }
-.upgrade-zoom-trigger:hover .upgrade-card-zoom-wrap,
-.upgrade-zoom-trigger.zoom-open .upgrade-card-zoom-wrap {
-  /* Fixed (not just a high z-index) so the zoomed card escapes every
-     ancestor's clipping box — notably .table-scroll's overflow-x:auto,
-     which per the CSS spec also clips the Y axis the moment X isn't
-     "visible". inset:auto undoes the default inset:0 above — required
-     the moment this switches to fixed, and specifically BEFORE app.js's
-     inline left/top (set by positionZoom(), see attachZoomCard) apply:
-     otherwise the still-active "right:0; bottom:0" from inset:0 would
-     conflict with the new left/top and stretch this into a distorted
-     box instead of sizing to its content. left/top then center the
-     wrap's own middle exactly on the trigger's on-screen center —
-     translate(-50%, -50%) shifts by half of *this* (post-scale) box's
-     own size, which is what actually centers it despite the box growing
-     3x from that same point. */
-  position: fixed;
-  inset: auto;
-  opacity: 1;
-  transform: translate(-50%, -50%) scale(3);
-  z-index: 50;
-}
-.upgrade-zoom-trigger:hover .upgrade-card-zoom-wrap::before,
-.upgrade-zoom-trigger.zoom-open .upgrade-card-zoom-wrap::before {
+.upgrade-card-zoom-wrap.zoom-open::before {
   opacity: 1;
 }
-.upgrade-zoom-trigger:hover .upgrade-card-zoom-wrap img,
-.upgrade-zoom-trigger.zoom-open .upgrade-card-zoom-wrap img {
+.upgrade-card-zoom-wrap.zoom-open img {
   box-shadow:
     0 0 20px 5px rgba(230, 57, 70, 0.65),
     0 0 40px 12px rgba(255, 179, 122, 0.5);
