@@ -86,8 +86,23 @@ router.get("/users", async (req, res) => {
 // don't need to be pre-created: assemble.js already defaults them to empty
 // when missing, same as it does for any existing driver with a gap.
 router.post("/drivers", async (req, res) => {
-  const { player, driver, teamName, backstory } = req.body || {};
+  const { player, driver, teamName, backstory, carColor } = req.body || {};
   if (!driver || !String(driver).trim()) return res.status(400).json({ error: "Driver name is required" });
+
+  // Optional — a driver can still be created colorless and assigned one
+  // later via PUT /api/drivers/:driverId/car-color. Checked here up front
+  // for a clear error message; the transactWrite below is still what
+  // actually guards against a race with another claim.
+  let cleanColor = null;
+  if (carColor) {
+    const colorConfig = await repo.getItem(keys.carColorConfig(carColor));
+    if (!colorConfig || colorConfig.active === false) {
+      return res.status(400).json({ error: `"${carColor}" is not an allowed color` });
+    }
+    const existingClaim = await repo.getItem(keys.carColorClaim(carColor));
+    if (existingClaim) return res.status(409).json({ error: `"${carColor}" is already taken by another driver.` });
+    cleanColor = carColor;
+  }
 
   const all = await repo.getAll();
   const driverItems = all.filter((i) => i.itemType === itemTypes.DRIVER);
@@ -111,7 +126,7 @@ router.post("/drivers", async (req, res) => {
     player: player || "",
     driver,
     teamName: teamName || "",
-    carColor: null,
+    carColor: cleanColor,
     backstory: backstory || "",
   };
   const userItem = {
@@ -124,19 +139,26 @@ router.post("/drivers", async (req, res) => {
     mustChangePassword: true,
   };
 
+  const transactItems = [
+    { Put: { Item: driverItem, ConditionExpression: "attribute_not_exists(PK)" } },
+    { Put: { Item: userItem, ConditionExpression: "attribute_not_exists(PK)" } },
+  ];
+  if (cleanColor) {
+    transactItems.push({
+      Put: { Item: { ...keys.carColorClaim(cleanColor), itemType: itemTypes.CARCOLORCLAIM, driverId }, ConditionExpression: "attribute_not_exists(PK)" },
+    });
+  }
+
   try {
-    await repo.transactWrite([
-      { Put: { Item: driverItem, ConditionExpression: "attribute_not_exists(PK)" } },
-      { Put: { Item: userItem, ConditionExpression: "attribute_not_exists(PK)" } },
-    ]);
+    await repo.transactWrite(transactItems);
   } catch (err) {
     if (err.name === "TransactionCanceledException") {
-      return res.status(409).json({ error: "That driver name maps to an id/username that's already taken — try a slightly different name." });
+      return res.status(409).json({ error: "That driver name is already taken, or the selected car color was just claimed by someone else — try again." });
     }
     throw err;
   }
 
-  res.json({ driver: { player: driverItem.player, driver: driverItem.driver, teamName: driverItem.teamName, carColor: null, backstory: driverItem.backstory, driverId }, username: driverId, tempPassword });
+  res.json({ driver: { player: driverItem.player, driver: driverItem.driver, teamName: driverItem.teamName, carColor: cleanColor, backstory: driverItem.backstory, driverId }, username: driverId, tempPassword });
 });
 
 // Deletes the driver's roster entry and their login together — leaving

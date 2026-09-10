@@ -216,6 +216,61 @@ th.sortable.sorted { color: var(--text); }
 
 .inv-depleted { color: var(--warn); }
 
+/* Upgrade Tracker page: each Upgrade N cell holds its select plus that
+   pick's card art, collapsed to zero height by default and revealed with
+   a smooth grid-rows transition (same technique as .inv-detail above)
+   when the mouse is over that driver's row — a glanceable "hand of cards"
+   that doesn't cost vertical space until you actually want to look. */
+.upgrade-cell { display: flex; flex-direction: column; }
+.upgrade-cell-card-wrap {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s ease;
+}
+tr.upgrade-row:hover .upgrade-cell-card-wrap {
+  grid-template-rows: 1fr;
+}
+.upgrade-cell-card-inner {
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+/* Only switched to visible while the row itself is hovered (the only time
+   these cards are shown at all) — needed so a hovered card's 2x zoom
+   below can actually pop out instead of getting clipped by the collapse
+   container's overflow:hidden. */
+tr.upgrade-row:hover .upgrade-cell-card-inner {
+  overflow: visible;
+}
+.upgrade-cell-card-inner img {
+  position: relative;
+  width: 84px;
+  height: auto;
+  margin-top: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-2);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: zoom-in;
+}
+.upgrade-cell-card-inner img:hover {
+  transform: scale(2);
+  z-index: 20;
+  box-shadow:
+    0 0 0 2px var(--accent),
+    0 0 20px 5px rgba(230, 57, 70, 0.65),
+    0 0 40px 12px rgba(255, 179, 122, 0.5);
+}
+.upgrade-card-label {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  text-align: center;
+}
+
 /* Upgrade Tracker: a driver's row loses the priority contest for a scarce
    part when a higher-priority driver claims it later — flagged here at
    the row level (red/orange highlight) rather than blocking anyone, with
@@ -243,6 +298,20 @@ th.sortable.sorted { color: var(--text); }
   color: var(--bg);
   font-weight: 700;
   font-size: 0.75rem;
+}
+
+/* Drivers tab: a car-color change that was rejected because another
+   driver already holds that color — stays visible (not just a transient
+   error) until that other driver's color changes, same "flag, don't
+   auto-resolve" idea as .compliance-detail-row above. */
+.color-conflict-note {
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: rgba(224, 160, 32, 0.08);
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  color: var(--text);
 }
 
 /* Card Restrictions box (Upgrade Tracker) — one row per rule kind (tiers,
@@ -593,6 +662,11 @@ footer.hint {
 .bento-card.expanded .bento-view-full { display: block; }
 
 .bento-driver-list { display: flex; flex-direction: column; gap: 8px; }
+
+/* Home page Upgrade Tracker card: each driver's picked upgrades as small
+   part-number badges, rather than the full Upgrade Tracker tab's editable
+   dropdowns. */
+.upgrade-mini-list { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
 /* Gradient border that grows in from the card's edge on hover — a ring
    whose thickness (the gap between the outer edge and the masked-out

@@ -25,19 +25,48 @@ router.put("/legend", requireAdmin, async (req, res) => {
 // Budget/remainingBudget are never accepted here; they're always
 // recomputed server-side in assemble.js.
 //
-// Deliberately no priority/availability check here — a pick always saves.
-// Whether it's actually defensible given priority is a read-time, derived
-// question (see computeCompliance in server/db/priority.js, wired in by
-// assembleData): a driver who doesn't have priority for a part sees their
-// own row flagged non-compliant immediately, and a driver who gets bumped
-// later by a higher-priority claim sees the same flag, without either
-// pick ever being blocked or silently reverted.
+// Deliberately no cross-driver priority/availability check here — a pick
+// against another driver always saves. Whether it's actually defensible
+// given priority is a read-time, derived question (see computeCompliance
+// in server/db/priority.js, wired in by assembleData): a driver who
+// doesn't have priority for a part sees their own row flagged
+// non-compliant immediately, and a driver who gets bumped later by a
+// higher-priority claim sees the same flag, without either pick ever
+// being blocked or silently reverted. The one-type-per-driver rule below
+// is different — it's not a contest with anyone else, so it's simpler and
+// clearer to just reject it outright.
 router.put("/:driverId", requireSelfOrAdmin("driverId"), async (req, res) => {
   const { driverId } = req.params;
   const isAdmin = req.user.role === "admin";
   const { sponsor, upgrades, modification } = req.body || {};
   if (upgrades !== undefined && !Array.isArray(upgrades)) {
     return res.status(400).json({ error: "upgrades must be an array" });
+  }
+
+  // One upgrade per type, no matter which specific part — two different
+  // Tires cards (or two copies of the same part) are just as disallowed
+  // as the same part twice. Unlike the cross-driver priority/compliance
+  // check (see server/db/priority.js), this is purely within one driver's
+  // own picks, so it can be checked and rejected outright here rather
+  // than saved-then-flagged.
+  if (Array.isArray(upgrades)) {
+    const all = await repo.getAll();
+    const typeByPart = new Map(all.filter((i) => i.itemType === itemTypes.UPGRADEPART).map((u) => [u.partNumber, u.type]));
+    const seenTypes = new Map(); // type -> the partNumber already claiming it
+    for (const partNumber of upgrades) {
+      if (partNumber == null) continue;
+      const num = Number(partNumber);
+      const type = typeByPart.get(num);
+      if (type == null) continue; // unknown part number — nothing to compare against
+      if (seenTypes.has(type)) {
+        const other = seenTypes.get(type);
+        const error = other === num
+          ? `Can't have two copies of the same upgrade (#${num}).`
+          : `Can't have two ${type} upgrades — #${num} conflicts with #${other}.`;
+        return res.status(400).json({ error });
+      }
+      seenTypes.set(type, num);
+    }
   }
 
   const driver = await repo.getItem(keys.driver(driverId));

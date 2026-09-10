@@ -34,6 +34,23 @@ function diffFields(before, after, fields) {
   return changes;
 }
 
+// Reconstructs the `{ field: newValue }` an UpdateCommand-shaped transact
+// entry is SETting, by pairing up each #name alias with its :value alias
+// of the same suffix (the convention every SET-only UpdateExpression in
+// this codebase follows — see repo.js's own updateItem() above, and
+// drivers.routes.js's car-color route). Only covers plain SET; nothing
+// here uses REMOVE/list_append, so there's no case for it yet.
+function attrsFromUpdateParams(params) {
+  const attrs = {};
+  const names = params.ExpressionAttributeNames || {};
+  const values = params.ExpressionAttributeValues || {};
+  for (const [nameAlias, field] of Object.entries(names)) {
+    const valueAlias = `:${nameAlias.slice(1)}`;
+    if (valueAlias in values) attrs[field] = values[valueAlias];
+  }
+  return attrs;
+}
+
 // Writes the audit entry directly via `doc.send`, not through putItem —
 // going through putItem would recursively try to audit-log the audit log
 // itself. Attributed to whoever's making the current request (see
@@ -210,11 +227,7 @@ async function transactWrite(items) {
   });
   await doc.send(new TransactWriteCommand({ TransactItems }));
 
-  // Audited the same way as the single-item equivalents above — Update
-  // isn't handled here since nothing in this codebase currently passes a
-  // transactWrite Update entry (only Put/Delete/ConditionCheck; see
-  // server/auth/users.js and server/routes/admin.routes.js), so there's no
-  // UpdateExpression-parsing case to cover.
+  // Audited the same way as the single-item equivalents above.
   for (const entry of items) {
     const [op, params] = Object.entries(entry)[0];
     if (op === "ConditionCheck") continue;
@@ -239,6 +252,15 @@ async function transactWrite(items) {
         targetItemType: prior.itemType,
         targetKey,
         changes: diffFields(prior, null, fields),
+      });
+    } else if (op === "Update") {
+      const attrs = attrsFromUpdateParams(params);
+      // eslint-disable-next-line no-await-in-loop
+      await recordAudit({
+        action: prior ? "update" : "create",
+        targetItemType: prior?.itemType || null,
+        targetKey,
+        changes: diffFields(prior, { ...prior, ...attrs }, Object.keys(attrs)),
       });
     }
   }

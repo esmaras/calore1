@@ -786,7 +786,22 @@ function showErrorBanner(heading, message) {
 }
 
 // ---------- Drivers ----------
+// A rejected car-color pick (someone else already holds it) is recorded as
+// a client-only note on the driver object — not sent to the server, and
+// dropped by the next refreshData() — so it survives re-renders instead of
+// vanishing the moment you switch tabs. Cleared here too, defensively, any
+// time the color it referenced is no longer held by anyone else (e.g. the
+// admin just moved the other driver off it).
+function reconcileColorConflicts() {
+  for (const d of DATA.drivers) {
+    if (d.colorConflict && !DATA.drivers.some((x) => x !== d && x.carColor === d.colorConflict.attempted)) {
+      d.colorConflict = null;
+    }
+  }
+}
+
 function renderDrivers(container) {
+  reconcileColorConflicts();
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "1961 Driver Lineup"));
   const grid = h("div", { class: "driver-grid" });
@@ -816,21 +831,32 @@ function renderDrivers(container) {
     card.appendChild(row);
 
     if (allowed) {
-      const colorErrorEl = h("div", { class: "auth-error", style: "margin:4px 0 0; min-height:0;" });
+      // Not restricted to unclaimed colors (unlike the Add Driver form) —
+      // picking a taken one is allowed to attempt, it just won't save
+      // (see the catch below and reconcileColorConflicts above).
       const colorSelect = selectInput(d.carColor, Object.keys(carColorMap()), async (v) => {
         const prevColor = d.carColor;
-        colorErrorEl.textContent = "";
+        d.colorConflict = null;
         try {
           await apiPut(`/api/drivers/${d.driverId}/car-color`, { carColor: v });
           d.carColor = v;
-          card.style.setProperty("--car-color", carColorMap()[v] || "#888");
+          reconcileColorConflicts(); // this driver vacating prevColor may clear someone else's note
         } catch (err) {
-          colorErrorEl.textContent = err.message;
           colorSelect.value = prevColor;
+          const holder = DATA.drivers.find((x) => x.carColor === v)?.driver || null;
+          d.colorConflict = { attempted: v, holder, message: err.message };
         }
+        renderActive();
       });
       card.appendChild(labeledField("Car Color", colorSelect));
-      card.appendChild(colorErrorEl);
+      if (d.colorConflict) {
+        card.appendChild(
+          h("div", { class: "color-conflict-note" },
+            h("span", { class: "compliance-icon" }, "!"),
+            ` Tried to set color to "${d.colorConflict.attempted}"${d.colorConflict.holder ? `, but it's already used by ${d.colorConflict.holder}` : ""} — change their color first, then try again.`
+          )
+        );
+      }
     } else {
       card.appendChild(labeledField("Car Color", h("div", {}, d.carColor)));
     }
@@ -968,12 +994,16 @@ function renderAddDriverForm() {
   const driverInput = h("input", { type: "text", placeholder: "Driver name (required)" });
   const playerInput = h("input", { type: "text", placeholder: "Player name" });
   const teamInput = h("input", { type: "text", placeholder: "Team name" });
+  const takenColors = new Set(DATA.drivers.map((d) => d.carColor).filter(Boolean));
+  const availableColors = Object.keys(carColorMap()).filter((c) => !takenColors.has(c));
+  const colorInput = selectInput("", [{ value: "", label: "— none —" }, ...availableColors], () => {});
   const backstoryInput = h("textarea", { rows: "2", placeholder: "Backstory (optional)" });
 
   const row = h("div", { style: "display:flex; gap:10px; margin-bottom:10px;" });
   row.appendChild(labeledField("Driver name", driverInput));
   row.appendChild(labeledField("Player name", playerInput));
   row.appendChild(labeledField("Team name", teamInput));
+  row.appendChild(labeledField("Car color", colorInput));
   panel.appendChild(row);
   panel.appendChild(labeledField("Backstory", backstoryInput));
   panel.appendChild(errorEl);
@@ -992,9 +1022,10 @@ function renderAddDriverForm() {
         player: playerInput.value.trim(),
         teamName: teamInput.value.trim(),
         backstory: backstoryInput.value.trim(),
+        carColor: colorInput.value || null,
       });
       showCredentialsBanner(`Driver "${body.driver.driver}" created`, body.username, body.tempPassword);
-      driverInput.value = ""; playerInput.value = ""; teamInput.value = ""; backstoryInput.value = "";
+      driverInput.value = ""; playerInput.value = ""; teamInput.value = ""; backstoryInput.value = ""; colorInput.value = "";
       await refreshData();
     } catch (err) {
       errorEl.textContent = err.message;
@@ -1054,7 +1085,7 @@ function renderUpgradeTracker(container) {
   const tbody = h("tbody");
   const sponsorNames = DATA.inventory.sponsors.map((s) => s.name);
   for (const e of DATA.upgradeTracker.entries) {
-    const tr = h("tr");
+    const tr = h("tr", { class: "upgrade-row" });
     tr.appendChild(h("td", {}, driverBadge(e.driver)));
     const sponsorTd = h("td");
     if (admin) {
@@ -1073,12 +1104,24 @@ function renderUpgradeTracker(container) {
     const canPickUpgrades = isSelfOrAdmin(e.driverId);
     e.upgrades.forEach((val, i) => {
       const td = h("td");
+      const cell = h("div", { class: "upgrade-cell" });
       if (canPickUpgrades) {
-        td.appendChild(upgradeSelect(val, (v) => { e.upgrades[i] = v; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
+        cell.appendChild(upgradeSelect(val, (v) => { e.upgrades[i] = v; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
       } else {
         const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(val));
-        td.appendChild(document.createTextNode(val != null ? `#${val}${u ? " · " + u.type : ""}` : "—"));
+        cell.appendChild(document.createTextNode(val != null ? `#${val}${u ? " · " + u.type : ""}` : "—"));
       }
+      if (val != null) {
+        const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(val));
+        const img = h("img", { src: partCardImagePath(val), alt: `Part #${val} card`, loading: "lazy" });
+        img.addEventListener("error", () => { img.style.display = "none"; });
+        const cardInner = h("div", { class: "upgrade-cell-card-inner" },
+          img,
+          h("div", { class: "upgrade-card-label" }, `#${val}${u ? " · " + u.type : ""}`)
+        );
+        cell.appendChild(h("div", { class: "upgrade-cell-card-wrap" }, cardInner));
+      }
+      td.appendChild(cell);
       tr.appendChild(td);
     });
     const modTd = h("td");
@@ -2045,10 +2088,16 @@ function buildDriversSummary() {
 function buildUpgradesSummary() {
   const wrap = h("div", { class: "table-scroll" });
   const table = h("table");
-  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Remaining"))));
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Upgrades"), h("th", {}, "Remaining"))));
   const tbody = h("tbody");
   for (const e of DATA.upgradeTracker.entries) {
-    tbody.appendChild(h("tr", {}, h("td", {}, driverBadge(e.driver)), h("td", {}, fmtMoney(e.remainingBudget))));
+    const picked = e.upgrades.filter((p) => p != null);
+    const upgradesCell = h("div", { class: "upgrade-mini-list" });
+    picked.forEach((partNumber) => {
+      const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(partNumber));
+      upgradesCell.appendChild(h("span", { class: "badge" }, `#${partNumber}${u ? " · " + u.type : ""}`));
+    });
+    tbody.appendChild(h("tr", {}, h("td", {}, driverBadge(e.driver)), h("td", {}, upgradesCell), h("td", {}, fmtMoney(e.remainingBudget))));
   }
   table.appendChild(tbody);
   wrap.appendChild(table);
