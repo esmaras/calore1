@@ -36,6 +36,10 @@ const keys = {
   offSeasonRegulations: () => ({ PK: "OFFSEASON#REGULATIONS", SK: "PROFILE" }),
   offSeasonDriverTracker: () => ({ PK: "OFFSEASON#DRIVERTRACKER", SK: "PROFILE" }),
   offSeasonMidSeasonWindow: () => ({ PK: "OFFSEASON#MIDSEASONWINDOW", SK: "PROFILE" }),
+  // One row per driver per season — what that driver won based on their
+  // final standing in `season`. Read by the next season's creation to
+  // seed each driver's starting budget carryover.
+  offSeasonWinnings: (driverId, season) => ({ PK: `OFFSEASONWINNINGS#${driverId}`, SK: `SEASON#${requireSeason(season)}` }),
 };
 
 const itemTypes = {
@@ -60,6 +64,7 @@ const itemTypes = {
   OFFSEASON_REGULATIONS: "OFFSEASON_REGULATIONS",
   OFFSEASON_DRIVERTRACKER: "OFFSEASON_DRIVERTRACKER",
   OFFSEASON_MIDSEASONWINDOW: "OFFSEASON_MIDSEASONWINDOW",
+  OFFSEASON_WINNINGS: "OFFSEASON_WINNINGS",
 };
 
 function slugify(text) {

@@ -27,6 +27,31 @@ function sponsorFunding(sponsors, sponsorName) {
   return s && typeof s.funding === "number" ? s.funding : 0;
 }
 
+// Each driver's starting budget for `seasonNumber` includes a rollover
+// from the prior season (its final remainingBudget + that driver's
+// off-season winnings). While the prior season is still open, this is
+// computed live — recursing into assembleData for that season — so
+// creating the next season early still tracks whatever's currently true.
+// Once the prior season is archived (POST /:seasonNumber/archive), its
+// carryoverByDriver snapshot is used directly instead: a fixed, stored
+// number that never needs recomputing again.
+function computeCarryoverByDriver(items, seasonNumber, allSeasonItems) {
+  const priorSeasonNumbers = allSeasonItems.filter((s) => s.seasonNumber < seasonNumber).map((s) => s.seasonNumber);
+  const priorSeasonNumber = priorSeasonNumbers.length ? Math.max(...priorSeasonNumbers) : null;
+  if (priorSeasonNumber == null) return {};
+
+  const priorSeasonItem = allSeasonItems.find((s) => s.seasonNumber === priorSeasonNumber);
+  if (priorSeasonItem?.archived && Array.isArray(priorSeasonItem.carryoverByDriver)) {
+    return Object.fromEntries(priorSeasonItem.carryoverByDriver.map((c) => [c.driverId, c.carryover || 0]));
+  }
+
+  const prior = assembleData(items, priorSeasonNumber);
+  const priorWinningsByDriverId = Object.fromEntries(prior.offSeasonBudget.winningsByDriver.map((w) => [w.driverId, w.winnings || 0]));
+  return Object.fromEntries(
+    prior.upgradeTracker.entries.map((e) => [e.driverId, (e.remainingBudget || 0) + (priorWinningsByDriverId[e.driverId] || 0)])
+  );
+}
+
 // Turns the flat array of DynamoDB items (as returned by repo.getAll())
 // into the same aggregate shape the client (public/app.js) has always
 // consumed. Derived fields (standings totalPoints/position, upgrade
@@ -71,18 +96,33 @@ function assembleData(items, viewedSeason) {
   // ---- standings ----
   const standingsRows = buildStandingsRowsForSeason(items, seasonNumber, driverItems);
 
+  // ---- off-season winnings: one deterministic row per driver, ordered by
+  // this season's final standing (not a freeform admin-typed list), so
+  // it's unambiguous who gets what — and so the next season's creation
+  // (see POST /api/season in season.routes.js) can read it directly to
+  // seed each driver's starting budget carryover.
+  const winningsByDriverId = Object.fromEntries(
+    bySeason(itemTypes.OFFSEASON_WINNINGS, seasonNumber).map((w) => [w.driverId, w.winnings ?? null])
+  );
+  const winningsByDriver = [...standingsRows]
+    .sort((a, b) => a.position - b.position)
+    .map((row) => ({ driverId: row.driverId, driver: row.driver, position: row.position, winnings: winningsByDriverId[row.driverId] ?? null }));
+
   // ---- upgrade tracker ----
   const legendItem = one(itemTypes.UPGRADETRACKER_LEGEND) || {};
+  const carryoverByDriverId = computeCarryoverByDriver(items, seasonNumber, allSeasonItems);
   const upgradeEntries = driverIds.map((driverId) => {
     const driver = driverById[driverId];
     const row = upgradeTrackerByDriver[driverId] || { sponsor: null, upgrades: [], modification: 0 };
-    const budget = (seasonItem.baseTeamBudget || 0) + sponsorFunding(sponsors, row.sponsor) + (row.modification || 0);
+    const carryover = carryoverByDriverId[driverId] || 0;
+    const budget = (seasonItem.baseTeamBudget || 0) + sponsorFunding(sponsors, row.sponsor) + (row.modification || 0) + carryover;
     const spent = (row.upgrades || []).reduce((sum, p) => sum + (p != null ? computeUpgradeCost(upgradeParts, p) : 0), 0);
     return {
       driverId,
       driver: driver.driver,
       sponsor: row.sponsor || null,
       budget,
+      carryover,
       upgrades: row.upgrades || [],
       modification: row.modification ?? null,
       remainingBudget: budget - spent,
@@ -154,6 +194,7 @@ function assembleData(items, viewedSeason) {
       schedule: seasonItem.schedule || [],
       allowedTiers: seasonItem.allowedTiers || [],
       disallowedTypes: seasonItem.disallowedTypes || [],
+      archived: seasonItem.archived || false,
     },
     // All seasons that exist (for a season switcher) plus which one is
     // "current" (the default/write target) vs. "viewed" (what this
@@ -178,6 +219,7 @@ function assembleData(items, viewedSeason) {
       regulations: (one(itemTypes.OFFSEASON_REGULATIONS) || {}).items || [],
       driverTracker: (one(itemTypes.OFFSEASON_DRIVERTRACKER) || {}).items || [],
       midSeasonWindow: (one(itemTypes.OFFSEASON_MIDSEASONWINDOW) || {}).items || [],
+      winningsByDriver,
     },
     // Not part of the legacy shape, but useful to the client going
     // forward (e.g. building driver-owner-aware UI) without another round

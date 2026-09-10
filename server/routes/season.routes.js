@@ -3,6 +3,7 @@ const repo = require("../db/repo");
 const { keys, itemTypes } = require("../db/keys");
 const { requireAdmin } = require("../auth/middleware");
 const { getCurrentSeasonNumber } = require("../db/currentSeason");
+const { assembleData } = require("../db/assemble");
 
 const router = express.Router();
 
@@ -74,6 +75,32 @@ router.post("/:seasonNumber/set-current", requireAdmin, async (req, res) => {
   if (!existing) return res.status(404).json({ error: "No such season" });
   await repo.putItem({ ...keys.currentSeasonPointer(), itemType: itemTypes.CURRENTSEASON_POINTER, seasonNumber });
   res.json({ currentSeasonNumber: seasonNumber });
+});
+
+// Freezes this season's budget carryover for good. Until a season is
+// archived, whatever the next season shows as each driver's rollover is
+// computed live off this season's current remainingBudget + winnings (see
+// assembleData/computeCarryoverByDriver) — so creating the next season
+// early still tracks this one as it plays out. Archiving snapshots that
+// math once, permanently, so it stops needing to be recomputed — and stops
+// changing — the moment the admin says this season is actually done.
+// One-way: once archived, a season can't be un-archived via the API.
+router.post("/:seasonNumber/archive", requireAdmin, async (req, res) => {
+  const seasonNumber = Number(req.params.seasonNumber);
+  const existing = await repo.getItem(keys.season(seasonNumber));
+  if (!existing) return res.status(404).json({ error: "No such season" });
+  if (existing.archived) return res.status(400).json({ error: "Season is already archived" });
+
+  const all = await repo.getAll();
+  const assembled = assembleData(all, seasonNumber);
+  const winningsByDriverId = Object.fromEntries(assembled.offSeasonBudget.winningsByDriver.map((w) => [w.driverId, w.winnings || 0]));
+  const carryoverByDriver = assembled.upgradeTracker.entries.map((e) => ({
+    driverId: e.driverId,
+    carryover: (e.remainingBudget || 0) + (winningsByDriverId[e.driverId] || 0),
+  }));
+
+  const updated = await repo.updateItem(keys.season(seasonNumber), { archived: true, carryoverByDriver });
+  res.json(updated);
 });
 
 // Partial update, not a whole-item PUT — the SEASON#n item also holds

@@ -371,6 +371,10 @@ function setCurrentSeason(seasonNumber) {
   return apiPost(`/api/season/${seasonNumber}/set-current`);
 }
 
+function archiveSeason(seasonNumber) {
+  return apiPost(`/api/season/${seasonNumber}/archive`);
+}
+
 function saveTechRegs() {
   scheduleSave("techregs", () => apiPut("/api/techregs", { items: DATA.technicalRegulations }));
 }
@@ -407,6 +411,10 @@ function saveOffseasonDriverTracker() {
 
 function saveOffseasonMidSeason() {
   scheduleSave("offseason-msw", () => apiPut("/api/offseason/mid-season-window", { items: DATA.offSeasonBudget.midSeasonWindow }));
+}
+
+function saveOffseasonWinnings(driverId, winnings) {
+  scheduleSave(`offseason-winnings:${driverId}`, () => apiPut(`/api/offseason/winnings/${driverId}${seasonQuery()}`, { winnings }));
 }
 
 function saveHofSeasonLog() {
@@ -481,6 +489,24 @@ function genericTrackerPanel(title, arr, columns, makeEmptyRow, { allowed = true
 }
 
 // ---------- Standings ----------
+// Mirrors server/db/ranking.js's compareRaceHistory — kept in sync by hand
+// since there's no shared module between server and this plain <script>
+// client. Ties on totalPoints are broken by comparing each driver's own
+// race finishes best-to-worst; a missed race (null) counts as worse than
+// any numeric finish.
+function compareRaceHistory(racesA, racesB) {
+  const sortedFinishes = (races) => [...(races || [])].map((p) => (p == null ? Infinity : p)).sort((x, y) => x - y);
+  const a = sortedFinishes(racesA);
+  const b = sortedFinishes(racesB);
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i++) {
+    const pa = a[i] ?? Infinity;
+    const pb = b[i] ?? Infinity;
+    if (pa !== pb) return pa - pb;
+  }
+  return 0;
+}
+
 function recomputeStandings() {
   const lookup = {};
   for (const p of DATA.standings.pointsTable) lookup[p.position] = p.points;
@@ -493,12 +519,17 @@ function recomputeStandings() {
     }
     d.totalPoints = total;
   });
-  const sorted = [...DATA.standings.drivers].sort((a, b) => b.totalPoints - a.totalPoints);
-  let rank = 0, prevPoints = null, seen = 0;
+  const sorted = [...DATA.standings.drivers].sort((a, b) => {
+    if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
+    return compareRaceHistory(a.races, b.races);
+  });
+  let rank = 0, seen = 0, prev = null;
   for (const d of sorted) {
     seen++;
-    if (d.totalPoints !== prevPoints) { rank = seen; prevPoints = d.totalPoints; }
+    const tiedWithPrev = prev != null && prev.totalPoints === d.totalPoints && compareRaceHistory(prev.races, d.races) === 0;
+    if (!tiedWithPrev) rank = seen;
     d.position = rank;
+    prev = d;
   }
 }
 
@@ -894,7 +925,11 @@ function computeSponsorFunding(sponsorName) {
 function recomputeUpgradeTracker() {
   DATA.upgradeTracker.entries.forEach((e, i) => {
     e.driver = DATA.drivers[i]?.driver ?? e.driver;
-    e.budget = (DATA.season.baseTeamBudget || 0) + computeSponsorFunding(e.sponsor) + (e.modification || 0);
+    // e.carryover itself is never recomputed client-side — it's whatever
+    // the server last sent (live-computed from the prior season, or a
+    // frozen snapshot if that season's archived); this just keeps it
+    // folded into the locally-recomputed budget after a sponsor/modification edit.
+    e.budget = (DATA.season.baseTeamBudget || 0) + computeSponsorFunding(e.sponsor) + (e.modification || 0) + (e.carryover || 0);
     const spent = e.upgrades.reduce((sum, p) => sum + (p != null ? computeUpgradeCost(p) : 0), 0);
     e.remainingBudget = e.budget - spent;
   });
@@ -909,7 +944,7 @@ function renderUpgradeTracker(container) {
   if (!admin) panel.appendChild(h("p", { class: "muted panel-note" }, "Sponsor and modification are managed by the league admin. Drivers can select their own upgrade parts below."));
   const wrap = h("div", { class: "table-scroll" });
   const table = h("table");
-  const headRow = h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Sponsor"), h("th", {}, "Budget"));
+  const headRow = h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Sponsor"), h("th", {}, "Budget"), h("th", {}, "Carryover"));
   for (let i = 0; i < MAX_UPGRADE_SLOTS; i++) headRow.appendChild(h("th", {}, `Upgrade ${i + 1}`));
   headRow.appendChild(h("th", {}, "Modification"));
   headRow.appendChild(h("th", {}, "Remaining"));
@@ -927,6 +962,10 @@ function renderUpgradeTracker(container) {
     }
     tr.appendChild(sponsorTd);
     tr.appendChild(h("td", { class: "cell-computed" }, fmtMoney(e.budget)));
+    // Rolled forward from the prior season's remaining budget + winnings —
+    // computed, not editable by anyone (see computeCarryoverByDriver in
+    // server/db/assemble.js).
+    tr.appendChild(h("td", { class: "cell-computed" }, fmtMoney(e.carryover)));
     // A driver can pick their own upgrade parts (admin can pick anyone's);
     // sponsor/modification stay admin-only above and below.
     const canPickUpgrades = isSelfOrAdmin(e.driverId);
@@ -955,7 +994,7 @@ function renderUpgradeTracker(container) {
       const message = e.complianceIssues
         .map((issue) => `Part #${issue.partNumber} (${issue.partType}) is oversubscribed — ${issue.higherPriorityCount} higher-priority driver(s) also selected it.`)
         .join(" ");
-      const detailTd = h("td", { colspan: String(5 + MAX_UPGRADE_SLOTS) }, h("span", { class: "compliance-icon" }, "!"), " " + message);
+      const detailTd = h("td", { colspan: String(6 + MAX_UPGRADE_SLOTS) }, h("span", { class: "compliance-icon" }, "!"), " " + message);
       tbody.appendChild(h("tr", { class: "compliance-detail-row" }, detailTd));
     }
   }
@@ -1285,9 +1324,11 @@ function renderSeason(container) {
   const statusLine = h("div", { style: "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;" });
   statusLine.appendChild(
     h("div", {}, `Viewing season #${DATA.viewedSeasonNumber} (${s.label}) — `,
-      isCurrent ? h("strong", { style: "color:var(--good);" }, "this is the current season") : h("span", { class: "muted" }, `current season is #${DATA.currentSeasonNumber}`)
+      isCurrent ? h("strong", { style: "color:var(--good);" }, "this is the current season") : h("span", { class: "muted" }, `current season is #${DATA.currentSeasonNumber}`),
+      s.archived ? h("span", { class: "muted" }, " · archived") : null
     )
   );
+  const statusActions = h("div", { style: "display:flex; gap:8px;" });
   if (allowed && !isCurrent) {
     const setCurrentBtn = h("button", { class: "btn small" }, "Set as current season");
     setCurrentBtn.addEventListener("click", async () => {
@@ -1300,8 +1341,26 @@ function renderSeason(container) {
         setCurrentBtn.disabled = false;
       }
     });
-    statusLine.appendChild(setCurrentBtn);
+    statusActions.appendChild(setCurrentBtn);
   }
+  if (allowed && !s.archived) {
+    const archiveBtn = h("button", { class: "btn small" }, "Archive season");
+    archiveBtn.addEventListener("click", async () => {
+      if (!window.confirm(
+        `Archive season #${DATA.viewedSeasonNumber} (${s.label})? This freezes every driver's budget rollover into the next season at today's numbers, permanently — it can't be undone from here, and any later edits to this season's races, upgrades, or winnings won't be reflected in what the next season already carried forward.`
+      )) return;
+      archiveBtn.disabled = true;
+      try {
+        await archiveSeason(DATA.viewedSeasonNumber);
+        await refreshData();
+      } catch (err) {
+        showErrorBanner("Could not archive season", err.message);
+        archiveBtn.disabled = false;
+      }
+    });
+    statusActions.appendChild(archiveBtn);
+  }
+  statusLine.appendChild(statusActions);
   bannerPanel.appendChild(statusLine);
   container.appendChild(bannerPanel);
 
@@ -1532,6 +1591,36 @@ function renderOffSeason(container) {
   table.appendChild(tbody);
   panel.appendChild(table);
   container.appendChild(panel);
+
+  // Deterministic, one row per current driver, ordered by this season's
+  // final standing — unlike the freeform trackers below, every driver
+  // always has exactly one row here, so it's unambiguous who gets what.
+  // This is what season creation reads to seed next season's starting
+  // budget (see POST /api/season in server/routes/season.routes.js).
+  const winPanel = h("div", { class: "panel" });
+  winPanel.appendChild(h("h2", {}, "Season-End Winnings"));
+  winPanel.appendChild(h("p", { class: "muted panel-note" },
+    "One row per driver, ordered by this season's final standing — feeds next season's starting budget when a new season is created."
+  ));
+  const winTable = h("table");
+  winTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Driver"), h("th", {}, "Winnings"))));
+  const winTbody = h("tbody");
+  DATA.offSeasonBudget.winningsByDriver.forEach((w) => {
+    const tr = h("tr");
+    tr.appendChild(h("td", { class: "cell-computed " + podiumClass("pos-", w.position) }, String(w.position)));
+    tr.appendChild(h("td", {}, driverBadge(w.driver)));
+    const tdWin = h("td");
+    if (allowed) {
+      tdWin.appendChild(numberInput(w.winnings, (v) => { w.winnings = v; saveOffseasonWinnings(w.driverId, v); }));
+    } else {
+      tdWin.appendChild(document.createTextNode(typeof w.winnings === "number" ? fmtMoney(w.winnings) : "—"));
+    }
+    tr.appendChild(tdWin);
+    winTbody.appendChild(tr);
+  });
+  winTable.appendChild(winTbody);
+  winPanel.appendChild(winTable);
+  container.appendChild(winPanel);
 
   container.appendChild(genericTrackerPanel(
     "Driver Off-Season Tracker",
