@@ -1086,8 +1086,17 @@ function attachZoomCard(triggerEl, partNumber) {
   // Centers the popup on the trigger's actual on-screen box, computed
   // fresh each time — exact regardless of ancestor layout. See the paired
   // "translate(-50%, -50%) scale(3)" in style.css, which centers the
-  // (differently-sized) zoomed box on this same point.
-  const positionZoom = () => {
+  // (differently-sized) zoomed box on this same point. On a touch tap
+  // (see the pointerup handler below) we instead center on the viewport:
+  // at 3x scale, a card zoomed in place from a thumbnail near the edge of
+  // a narrow phone screen mostly renders off-screen, whereas the trigger's
+  // own position is irrelevant to a tap (there's no cursor to stay under).
+  const positionZoom = (centerOnScreen) => {
+    if (centerOnScreen) {
+      zoomWrap.style.left = `${window.innerWidth / 2}px`;
+      zoomWrap.style.top = `${window.innerHeight / 2}px`;
+      return;
+    }
     const rect = triggerEl.getBoundingClientRect();
     zoomWrap.style.left = `${rect.left + rect.width / 2}px`;
     zoomWrap.style.top = `${rect.top + rect.height / 2}px`;
@@ -1095,7 +1104,7 @@ function attachZoomCard(triggerEl, partNumber) {
 
   triggerEl.addEventListener("pointerenter", (e) => {
     if (e.pointerType !== "mouse") return;
-    positionZoom();
+    positionZoom(false);
     zoomWrap.classList.add("zoom-open");
   });
   triggerEl.addEventListener("pointerleave", (e) => {
@@ -1110,7 +1119,7 @@ function attachZoomCard(triggerEl, partNumber) {
     const wasOpen = zoomWrap.classList.contains("zoom-open");
     closeAllZoomWraps(zoomWrap);
     zoomWrap.classList.toggle("zoom-open", !wasOpen);
-    if (!wasOpen) positionZoom();
+    if (!wasOpen) positionZoom(true);
   });
 }
 

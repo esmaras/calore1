@@ -223,7 +223,13 @@ th.sortable.sorted { color: var(--text); }
    that doesn't cost vertical space until you actually want to look. .open
    (added by app.js, via the row itself or the mobile toggle button below)
    mirrors :hover for touch devices, which don't have a real hover state
-   to trigger this. */
+   to trigger this. The :hover variant itself is further gated to
+   `(hover: hover)` devices only — on iOS/Android Safari a tap on (or
+   inside) an element with :hover styling can leave it "stuck" in the
+   hover state until the user taps elsewhere on the page, which fought
+   the .open toggle: tapping the collapse button removed .open, but the
+   row stayed visually expanded because it was still matching :hover.
+   Real mouse users are unaffected since they report hover: hover. */
 tr.upgrade-row { cursor: pointer; }
 .upgrade-cell { display: flex; flex-direction: column; }
 .upgrade-cell-card-wrap {
@@ -231,9 +237,13 @@ tr.upgrade-row { cursor: pointer; }
   grid-template-rows: 0fr;
   transition: grid-template-rows 0.25s ease;
 }
-tr.upgrade-row:hover .upgrade-cell-card-wrap,
 tr.upgrade-row.open .upgrade-cell-card-wrap {
   grid-template-rows: 1fr;
+}
+@media (hover: hover) {
+  tr.upgrade-row:hover .upgrade-cell-card-wrap {
+    grid-template-rows: 1fr;
+  }
 }
 .upgrade-cell-card-inner {
   overflow: hidden;
@@ -247,9 +257,13 @@ tr.upgrade-row.open .upgrade-cell-card-wrap {
    these cards are shown at all) — needed so a hovered/tapped card's zoom
    below can actually pop out instead of getting clipped by the collapse
    container's overflow:hidden. */
-tr.upgrade-row:hover .upgrade-cell-card-inner,
 tr.upgrade-row.open .upgrade-cell-card-inner {
   overflow: visible;
+}
+@media (hover: hover) {
+  tr.upgrade-row:hover .upgrade-cell-card-inner {
+    overflow: visible;
+  }
 }
 
 /* An explicit, always-reliable tap target for opening/closing a driver's
