@@ -371,12 +371,16 @@ function setCurrentSeason(seasonNumber) {
   return apiPost(`/api/season/${seasonNumber}/set-current`);
 }
 
-function archiveSeason(seasonNumber) {
-  return apiPost(`/api/season/${seasonNumber}/archive`);
+function endSeason(seasonNumber) {
+  return apiPost(`/api/season/${seasonNumber}/end`);
+}
+
+function reopenSeason(seasonNumber) {
+  return apiPost(`/api/season/${seasonNumber}/reopen`);
 }
 
 function saveTechRegs() {
-  scheduleSave("techregs", () => apiPut("/api/techregs", { items: DATA.technicalRegulations }));
+  scheduleSave("techregs", () => apiPut(`/api/techregs${seasonQuery()}`, { items: DATA.technicalRegulations }));
 }
 
 function saveFiccNotes() {
@@ -399,6 +403,118 @@ function saveFiccFreeform() {
   const driverRowCount = DATA.drivers.length;
   const freeform = DATA.ficcBacklog.proposals.slice(driverRowCount);
   scheduleSave("ficc-freeform", () => apiPut(`/api/ficc/proposals/freeform${seasonQuery()}`, { items: freeform }));
+}
+
+// ---------- Voting (FICC proposals + technical regulations) ----------
+// Unlike the debounced scheduleSave() saves above, a vote/veto is a single
+// discrete action, not a text field losing focus — it fires immediately,
+// and refreshes the whole page's data afterward since a vote can resolve
+// (and even auto-promote a regulation into next season) for everyone
+// looking at this page, not just the voter.
+function castFiccProposalVote(driverId, vote) {
+  return apiPut(`/api/ficc/proposals/${driverId}/vote${seasonQuery()}`, { vote });
+}
+function castFiccProposalVeto(driverId) {
+  return apiPost(`/api/ficc/proposals/${driverId}/veto${seasonQuery()}`);
+}
+function castFiccFreeformVote(id, vote) {
+  return apiPut(`/api/ficc/proposals/freeform/${id}/vote${seasonQuery()}`, { vote });
+}
+function castFiccFreeformVeto(id) {
+  return apiPost(`/api/ficc/proposals/freeform/${id}/veto${seasonQuery()}`);
+}
+function castTechRegVote(id, vote) {
+  return apiPut(`/api/techregs/${id}/vote${seasonQuery()}`, { vote });
+}
+function castTechRegVeto(id) {
+  return apiPost(`/api/techregs/${id}/veto${seasonQuery()}`);
+}
+
+async function handleVoteClick(castFn) {
+  try {
+    await castFn();
+    await refreshData();
+  } catch (err) {
+    showErrorBanner("Could not cast vote", err.message);
+  }
+}
+
+async function handleVetoClick(castFn) {
+  if (!window.confirm("Use the season champion's one-time Golden Wrench veto on this item? It can only be used once per off-season, and can't be undone.")) return;
+  try {
+    await castFn();
+    await refreshData();
+  } catch (err) {
+    showErrorBanner("Could not veto", err.message);
+  }
+}
+
+// Whether the current viewer is allowed to see a veto button at all —
+// the actual authorization is still enforced server-side, this just
+// avoids showing the button to someone who'd only get a 403.
+function canUseVeto() {
+  return (
+    !DATA.season.vetoUsedBy &&
+    (isAdmin() || (CURRENT_USER?.driverId && CURRENT_USER.driverId === DATA.season.championDriverId))
+  );
+}
+
+// Once a single vote has been cast, a proposal/regulation's content is
+// frozen server-side (see isContentLocked in server/db/voting.js) — this
+// mirrors that same rule client-side so editable fields just render as
+// plain text instead of letting someone attempt an edit that's only
+// going to be rejected on save.
+function isVotingLocked(voting) {
+  return !!voting && voting.votedCount > 0;
+}
+
+// Builds the compact voting UI for one votable item — participation count
+// and Yes/No buttons while blind and open, a resolved-outcome pill once
+// it isn't. `onVote`/`onVeto` are null when the current viewer isn't
+// eligible for that action (not a driver, already voted, veto unavailable).
+function renderVotingControl(voting, { onVote, onVeto }) {
+  const wrap = h("div", { class: "voting-control" });
+  if (!voting || !voting.votingOpen) {
+    wrap.appendChild(h("span", { class: "muted" }, "—"));
+    return wrap;
+  }
+
+  if (voting.status !== "open") {
+    const label = voting.status === "passed" ? `Passed ${voting.yes}-${voting.no}` : voting.status === "vetoed" ? "Vetoed" : `Failed ${voting.yes}-${voting.no}`;
+    wrap.appendChild(h("span", { class: "voting-pill voting-" + voting.status }, label));
+    return wrap;
+  }
+
+  wrap.appendChild(h("div", { class: "muted voting-progress" }, `${voting.votedCount} of ${voting.totalVoters} voted`));
+  if (voting.myVote) {
+    wrap.appendChild(h("div", { class: "muted" }, `You voted ${voting.myVote === "yes" ? "Yes" : "No"}`));
+  } else if (onVote) {
+    const yesBtn = h("button", { class: "btn small" }, "Yes");
+    const noBtn = h("button", { class: "btn small" }, "No");
+    yesBtn.addEventListener("click", () => onVote("yes"));
+    noBtn.addEventListener("click", () => onVote("no"));
+    wrap.appendChild(h("div", { class: "voting-buttons" }, yesBtn, noBtn));
+  }
+  if (onVeto) {
+    const vetoBtn = h("button", { class: "btn small voting-veto" }, "🔧 Veto");
+    vetoBtn.addEventListener("click", onVeto);
+    wrap.appendChild(vetoBtn);
+  }
+  return wrap;
+}
+
+// Wires renderVotingControl up to a specific votable item — shared by
+// technical regulations and both kinds of FICC proposal rows, which only
+// differ in which field identifies the item (a tech reg/freeform proposal
+// has its own `id`; a driver-linked proposal is identified by `driverId`).
+function buildVotingTd(item, vetoEligible, castVoteFn, castVetoFn, idField = "id") {
+  const id = item[idField];
+  const open = item.voting?.status === "open";
+  const onVote = CURRENT_USER?.driverId && open && !item.voting?.myVote
+    ? (vote) => handleVoteClick(() => castVoteFn(id, vote))
+    : null;
+  const onVeto = vetoEligible && open ? () => handleVetoClick(() => castVetoFn(id)) : null;
+  return h("td", {}, renderVotingControl(item.voting, { onVote, onVeto }));
 }
 
 function saveOffseasonRegs() {
@@ -927,7 +1043,7 @@ function recomputeUpgradeTracker() {
     e.driver = DATA.drivers[i]?.driver ?? e.driver;
     // e.carryover itself is never recomputed client-side — it's whatever
     // the server last sent (live-computed from the prior season, or a
-    // frozen snapshot if that season's archived); this just keeps it
+    // frozen snapshot if that season's ended); this just keeps it
     // folded into the locally-recomputed budget after a sponsor/modification edit.
     e.budget = (DATA.season.baseTeamBudget || 0) + computeSponsorFunding(e.sponsor) + (e.modification || 0) + (e.carryover || 0);
     const spent = e.upgrades.reduce((sum, p) => sum + (p != null ? computeUpgradeCost(p) : 0), 0);
@@ -1325,7 +1441,7 @@ function renderSeason(container) {
   statusLine.appendChild(
     h("div", {}, `Viewing season #${DATA.viewedSeasonNumber} (${s.label}) — `,
       isCurrent ? h("strong", { style: "color:var(--good);" }, "this is the current season") : h("span", { class: "muted" }, `current season is #${DATA.currentSeasonNumber}`),
-      s.archived ? h("span", { class: "muted" }, " · archived") : null
+      s.ended ? h("span", { class: "muted" }, " · ended") : null
     )
   );
   const statusActions = h("div", { style: "display:flex; gap:8px;" });
@@ -1343,22 +1459,39 @@ function renderSeason(container) {
     });
     statusActions.appendChild(setCurrentBtn);
   }
-  if (allowed && !s.archived) {
-    const archiveBtn = h("button", { class: "btn small" }, "Archive season");
-    archiveBtn.addEventListener("click", async () => {
+  if (allowed && !s.ended) {
+    const endBtn = h("button", { class: "btn small" }, "End Season");
+    endBtn.addEventListener("click", async () => {
       if (!window.confirm(
-        `Archive season #${DATA.viewedSeasonNumber} (${s.label})? This freezes every driver's budget rollover into the next season at today's numbers, permanently — it can't be undone from here, and any later edits to this season's races, upgrades, or winnings won't be reflected in what the next season already carried forward.`
+        `End season #${DATA.viewedSeasonNumber} (${s.label})? This freezes every driver's budget rollover into the next season at today's numbers, and opens FICC backlog / technical regulation voting for the off-season. You can reopen the season later if needed, but any votes already cast in the meantime stay recorded and pick back up rather than resetting.`
       )) return;
-      archiveBtn.disabled = true;
+      endBtn.disabled = true;
       try {
-        await archiveSeason(DATA.viewedSeasonNumber);
+        await endSeason(DATA.viewedSeasonNumber);
         await refreshData();
       } catch (err) {
-        showErrorBanner("Could not archive season", err.message);
-        archiveBtn.disabled = false;
+        showErrorBanner("Could not end season", err.message);
+        endBtn.disabled = false;
       }
     });
-    statusActions.appendChild(archiveBtn);
+    statusActions.appendChild(endBtn);
+  }
+  if (allowed && s.ended) {
+    const reopenBtn = h("button", { class: "btn small" }, "Reopen season");
+    reopenBtn.addEventListener("click", async () => {
+      if (!window.confirm(
+        `Reopen season #${DATA.viewedSeasonNumber} (${s.label})? Its budget carryover into the next season goes back to tracking this season live instead of the frozen snapshot, and FICC/tech-reg voting for this off-season closes again until you end it once more.`
+      )) return;
+      reopenBtn.disabled = true;
+      try {
+        await reopenSeason(DATA.viewedSeasonNumber);
+        await refreshData();
+      } catch (err) {
+        showErrorBanner("Could not reopen season", err.message);
+        reopenBtn.disabled = false;
+      }
+    });
+    statusActions.appendChild(reopenBtn);
   }
   statusLine.appendChild(statusActions);
   bannerPanel.appendChild(statusLine);
@@ -1461,11 +1594,13 @@ function renderTechRegs(container) {
   panel.appendChild(h("h2", {}, "1961 Technical Regulations"));
   if (!allowed) panel.appendChild(h("p", { class: "muted panel-note" }, "Managed by the league admin."));
   const table = h("table");
-  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Regulation"), h("th", {}, "Type"), h("th", {}, "Explanation"), h("th", {}, "Expiration"), h("th", {}, ""))));
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Regulation"), h("th", {}, "Type"), h("th", {}, "Explanation"), h("th", {}, "Expiration"), h("th", {}, "Voting"), h("th", {}, ""))));
   const tbody = h("tbody");
+  const vetoEligible = canUseVeto();
   DATA.technicalRegulations.forEach((r, i) => {
     const tr = h("tr");
-    if (allowed) {
+    const editable = allowed && !isVotingLocked(r.voting);
+    if (editable) {
       const tdName = h("td"); tdName.appendChild(textInput(r.name, (v) => { r.name = v; saveTechRegs(); }));
       const tdType = h("td"); tdType.appendChild(textInput(r.type, (v) => { r.type = v; saveTechRegs(); }));
       const tdExp = h("td"); tdExp.appendChild(textareaInput(r.explanation, (v) => { r.explanation = v; saveTechRegs(); }, 2));
@@ -1474,12 +1609,15 @@ function renderTechRegs(container) {
       const b = h("button", { class: "btn small" }, "✕");
       b.addEventListener("click", () => { DATA.technicalRegulations.splice(i, 1); saveTechRegs(); renderActive(); });
       tdDel.appendChild(b);
-      tr.appendChild(tdName); tr.appendChild(tdType); tr.appendChild(tdExp); tr.appendChild(tdExpr); tr.appendChild(tdDel);
+      tr.appendChild(tdName); tr.appendChild(tdType); tr.appendChild(tdExp); tr.appendChild(tdExpr);
+      tr.appendChild(buildVotingTd(r, vetoEligible, castTechRegVote, castTechRegVeto));
+      tr.appendChild(tdDel);
     } else {
       tr.appendChild(h("td", {}, r.name));
       tr.appendChild(h("td", {}, r.type));
       tr.appendChild(h("td", {}, r.explanation));
       tr.appendChild(h("td", {}, r.expiration));
+      tr.appendChild(buildVotingTd(r, vetoEligible, castTechRegVote, castTechRegVeto));
       tr.appendChild(h("td", {}));
     }
     tbody.appendChild(tr);
@@ -1511,8 +1649,9 @@ function renderFiccBacklog(container) {
   const panel2 = h("div", { class: "panel" });
   panel2.appendChild(h("h2", {}, "Proposed Regulations"));
   const table = h("table");
-  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Proposed Regulation"), h("th", {}, "Type"), h("th", {}, "Explanation"), h("th", {}, "Expiration"), h("th", {}, ""))));
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Proposed Regulation"), h("th", {}, "Type"), h("th", {}, "Explanation"), h("th", {}, "Expiration"), h("th", {}, "Voting"), h("th", {}, ""))));
   const tbody = h("tbody");
+  const vetoEligible = canUseVeto();
   // The first N proposal rows are INDEX'd from the driver lineup in the sheet
   // (one proposal slot per driver) — driver-owned-editable, like the Drivers
   // tab. The remaining freeform rows are admin-only.
@@ -1520,12 +1659,12 @@ function renderFiccBacklog(container) {
   DATA.ficcBacklog.proposals.forEach((p, i) => {
     const isDriverRow = i < driverRowCount;
     if (isDriverRow) p.driverName = DATA.drivers[i]?.driver ?? p.driverName;
-    const rowAllowed = isDriverRow ? isSelfOrAdmin(p.driverId) : isAdmin();
+    const rowAllowed = (isDriverRow ? isSelfOrAdmin(p.driverId) : isAdmin()) && !isVotingLocked(p.voting);
     const tr = h("tr");
     const tdDriver = h("td");
     if (isDriverRow) {
       tdDriver.appendChild(driverBadge(p.driverName));
-    } else if (isAdmin()) {
+    } else if (isAdmin() && !isVotingLocked(p.voting)) {
       tdDriver.appendChild(driverSelectField(p.driverName, (v) => { p.driverName = v || null; saveFiccFreeform(); }));
     } else {
       tdDriver.appendChild(document.createTextNode(p.driverName || ""));
@@ -1544,8 +1683,13 @@ function renderFiccBacklog(container) {
       tr.appendChild(h("td", {}, p.explanation || ""));
       tr.appendChild(h("td", {}, p.expiration || ""));
     }
+    tr.appendChild(
+      isDriverRow
+        ? buildVotingTd(p, vetoEligible, castFiccProposalVote, castFiccProposalVeto, "driverId")
+        : buildVotingTd(p, vetoEligible, castFiccFreeformVote, castFiccFreeformVeto, "id")
+    );
     const tdDel = h("td");
-    if (!isDriverRow && isAdmin()) {
+    if (!isDriverRow && isAdmin() && !isVotingLocked(p.voting)) {
       const b = h("button", { class: "btn small" }, "✕");
       b.addEventListener("click", () => { DATA.ficcBacklog.proposals.splice(i, 1); saveFiccFreeform(); renderActive(); });
       tdDel.appendChild(b);

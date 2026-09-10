@@ -65,6 +65,24 @@ router.post("/", requireAdmin, async (req, res) => {
     disallowedTypes: [],
   };
   await repo.putItem(item);
+
+  // Inherit any technical regulations that were auto-promoted (FICC
+  // proposals that passed their vote, or expiring regs that were renewed)
+  // while this was the next season but didn't exist yet — see
+  // promoteToNextSeason in server/db/voting.js, which parks these on the
+  // season they were voted during whenever the following season isn't
+  // created yet at the moment a vote resolves.
+  const priorSeasonNumber = existingSeasons.length ? Math.max(...existingSeasons.map((s) => s.seasonNumber)) : null;
+  const priorSeasonItem = priorSeasonNumber != null ? existingSeasons.find((s) => s.seasonNumber === priorSeasonNumber) : null;
+  if (priorSeasonItem?.promotedRegs?.length) {
+    await repo.putItem({
+      ...keys.techRegs(nextSeasonNumber),
+      itemType: itemTypes.TECHREGS,
+      season: nextSeasonNumber,
+      items: priorSeasonItem.promotedRegs,
+    });
+  }
+
   res.json(item);
 });
 
@@ -77,19 +95,20 @@ router.post("/:seasonNumber/set-current", requireAdmin, async (req, res) => {
   res.json({ currentSeasonNumber: seasonNumber });
 });
 
-// Freezes this season's budget carryover for good. Until a season is
-// archived, whatever the next season shows as each driver's rollover is
-// computed live off this season's current remainingBudget + winnings (see
-// assembleData/computeCarryoverByDriver) — so creating the next season
-// early still tracks this one as it plays out. Archiving snapshots that
-// math once, permanently, so it stops needing to be recomputed — and stops
-// changing — the moment the admin says this season is actually done.
-// One-way: once archived, a season can't be un-archived via the API.
-router.post("/:seasonNumber/archive", requireAdmin, async (req, res) => {
+// Ends a season: freezes its budget carryover for good, and opens FICC/tech
+// reg voting for the resulting off-season (see server/db/voting.js). Until
+// a season is ended, whatever the next season shows as each driver's
+// rollover is computed live off this season's current remainingBudget +
+// winnings (see assembleData/computeCarryoverByDriver) — so creating the
+// next season early still tracks this one as it plays out. Ending it
+// snapshots that math once, so it stops needing to be recomputed — and
+// stops changing — the moment the admin says this season is actually done.
+// Reversible via /reopen below, in case it was ended too early.
+router.post("/:seasonNumber/end", requireAdmin, async (req, res) => {
   const seasonNumber = Number(req.params.seasonNumber);
   const existing = await repo.getItem(keys.season(seasonNumber));
   if (!existing) return res.status(404).json({ error: "No such season" });
-  if (existing.archived) return res.status(400).json({ error: "Season is already archived" });
+  if (existing.ended) return res.status(400).json({ error: "Season has already ended" });
 
   const all = await repo.getAll();
   const assembled = assembleData(all, seasonNumber);
@@ -99,7 +118,22 @@ router.post("/:seasonNumber/archive", requireAdmin, async (req, res) => {
     carryover: (e.remainingBudget || 0) + (winningsByDriverId[e.driverId] || 0),
   }));
 
-  const updated = await repo.updateItem(keys.season(seasonNumber), { archived: true, carryoverByDriver });
+  const updated = await repo.updateItem(keys.season(seasonNumber), { ended: true, endedCarryoverByDriver: carryoverByDriver });
+  res.json(updated);
+});
+
+// Reverses /end: the season goes back to "in progress" (its next-season
+// carryover recomputes live again instead of using the frozen snapshot),
+// and FICC/tech-reg voting for its off-season closes again — any votes
+// already cast stay recorded, they just stop being actionable (no further
+// resolution/promotion) until the season is ended again.
+router.post("/:seasonNumber/reopen", requireAdmin, async (req, res) => {
+  const seasonNumber = Number(req.params.seasonNumber);
+  const existing = await repo.getItem(keys.season(seasonNumber));
+  if (!existing) return res.status(404).json({ error: "No such season" });
+  if (!existing.ended) return res.status(400).json({ error: "Season is not ended" });
+
+  const updated = await repo.updateItem(keys.season(seasonNumber), { ended: false, endedCarryoverByDriver: [] });
   res.json(updated);
 });
 

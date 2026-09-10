@@ -16,11 +16,21 @@ function setSessionCookie(res, payload) {
 }
 
 function requireAuth(req, res, next) {
-  const token = req.cookies?.[COOKIE_NAME];
-  const payload = verify(token, config.sessionSecret);
+  const payload = identifyUser(req);
   if (!payload) return res.status(401).json({ error: "Not authenticated" });
   req.user = payload; // { username, role, driverId, issuedAt, expiresAt }
   next();
+}
+
+// Same cookie decode as requireAuth, but never rejects — returns null for
+// a guest/invalid session instead of a 401. Used by routes that are
+// intentionally public (GET /api/data) but still want to know who's
+// asking when someone happens to be logged in, e.g. to reveal a driver's
+// own FICC/tech-reg vote without exposing anyone else's (see
+// buildVotingView in server/db/voting.js).
+function identifyUser(req) {
+  const token = req.cookies?.[COOKIE_NAME];
+  return verify(token, config.sessionSecret);
 }
 
 function requireAdmin(req, res, next) {
@@ -39,4 +49,4 @@ function requireSelfOrAdmin(paramName) {
   };
 }
 
-module.exports = { COOKIE_NAME, SESSION_MS, SESSION_DAYS, setSessionCookie, requireAuth, requireAdmin, requireSelfOrAdmin };
+module.exports = { COOKIE_NAME, SESSION_MS, SESSION_DAYS, setSessionCookie, requireAuth, requireAdmin, requireSelfOrAdmin, identifyUser };

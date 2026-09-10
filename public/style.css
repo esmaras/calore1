@@ -492,6 +492,24 @@ footer.hint {
   padding: 30px 0 60px;
 }
 
+/* FICC proposal / technical regulation voting (blind ballot — see
+   renderVotingControl in app.js). Participation count + Yes/No while
+   open, a resolved-outcome pill once it isn't. */
+.voting-control { min-width: 120px; }
+.voting-progress { font-size: 0.78rem; margin-bottom: 4px; }
+.voting-buttons { display: flex; gap: 6px; }
+.voting-veto { margin-top: 6px; }
+.voting-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.voting-passed { background: rgba(76, 175, 125, 0.18); color: var(--good); }
+.voting-failed { background: rgba(230, 57, 70, 0.15); color: var(--accent); }
+.voting-vetoed { background: rgba(224, 160, 32, 0.18); color: var(--warn); }
+
 @media (max-width: 700px) {
   .kv-grid { grid-template-columns: 1fr; }
   .topbar { flex-direction: column; align-items: flex-start; gap: 8px; }

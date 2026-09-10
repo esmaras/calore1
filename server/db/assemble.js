@@ -1,6 +1,7 @@
 const { itemTypes } = require("./keys");
 const { buildStandingsRowsForSeason } = require("./ranking");
 const { computeCompliance } = require("./priority");
+const { buildVotingView, championDriverId } = require("./voting");
 
 function strip(item) {
   if (!item) return item;
@@ -32,17 +33,18 @@ function sponsorFunding(sponsors, sponsorName) {
 // off-season winnings). While the prior season is still open, this is
 // computed live — recursing into assembleData for that season — so
 // creating the next season early still tracks whatever's currently true.
-// Once the prior season is archived (POST /:seasonNumber/archive), its
-// carryoverByDriver snapshot is used directly instead: a fixed, stored
-// number that never needs recomputing again.
+// Once the prior season has ended (POST /:seasonNumber/end), its
+// endedCarryoverByDriver snapshot is used directly instead: a fixed,
+// stored number that never needs recomputing again (until /reopen clears
+// it, putting this season back on the live-computed path).
 function computeCarryoverByDriver(items, seasonNumber, allSeasonItems) {
   const priorSeasonNumbers = allSeasonItems.filter((s) => s.seasonNumber < seasonNumber).map((s) => s.seasonNumber);
   const priorSeasonNumber = priorSeasonNumbers.length ? Math.max(...priorSeasonNumbers) : null;
   if (priorSeasonNumber == null) return {};
 
   const priorSeasonItem = allSeasonItems.find((s) => s.seasonNumber === priorSeasonNumber);
-  if (priorSeasonItem?.archived && Array.isArray(priorSeasonItem.carryoverByDriver)) {
-    return Object.fromEntries(priorSeasonItem.carryoverByDriver.map((c) => [c.driverId, c.carryover || 0]));
+  if (priorSeasonItem?.ended && Array.isArray(priorSeasonItem.endedCarryoverByDriver)) {
+    return Object.fromEntries(priorSeasonItem.endedCarryoverByDriver.map((c) => [c.driverId, c.carryover || 0]));
   }
 
   const prior = assembleData(items, priorSeasonNumber);
@@ -60,10 +62,10 @@ function computeCarryoverByDriver(items, seasonNumber, allSeasonItems) {
 // value drifts from the fields it's derived from.
 //
 // `viewedSeason` selects which season's Standings/Upgrade Tracker/FICC
-// Backlog data to assemble — driver roster, inventory, lore, technical
-// regs, hall of fame, and off-season budget are NOT season-scoped (they
-// carry over season to season), only those three sections are.
-function assembleData(items, viewedSeason) {
+// Backlog/Technical Regulations data to assemble — driver roster,
+// inventory, lore, hall of fame, and off-season budget are NOT
+// season-scoped (they carry over season to season).
+function assembleData(items, viewedSeason, viewerDriverId = null) {
   const byType = groupByItemType(items);
   const one = (type) => strip((byType[type] || [])[0]);
   const bySeason = (type, season) => (byType[type] || []).filter((i) => i.season === season);
@@ -158,19 +160,39 @@ function assembleData(items, viewedSeason) {
   }));
 
   // ---- ficc backlog proposals: driver-linked rows first (in driver order), then freeform ----
+  // Voting only opens once this season has ended (see season.routes.js
+  // /:seasonNumber/end) — the off-season vote is on THIS season's
+  // proposals and expiring regs, not the prior one. Blind ballot: the
+  // yes/no split and everyone else's individual vote stay hidden from
+  // every viewer (including admin) until an item resolves — see
+  // buildVotingView in server/db/voting.js.
+  const driverCount = driverIds.length;
+  const votingOpen = !!seasonItem.ended;
+  const votingCtx = { driverCount, viewerDriverId, votingOpen };
+  // Whoever finished P1 this season holds its one Golden Wrench veto for
+  // the resulting off-season — exposed so the client can show the veto
+  // button only to that driver (and admin), and only while it's unused.
+  const seasonChampionDriverId = championDriverId(items, seasonNumber, driverItems);
+
   const driverProposals = driverIds.map((driverId) => {
     const driver = driverById[driverId];
     const p = ficcProposalByDriver[driverId] || {};
     return {
+      driverId,
       driverName: driver.driver,
       regulationName: p.regulationName ?? null,
       type: p.type ?? null,
       explanation: p.explanation ?? null,
       expiration: p.expiration ?? null,
+      voting: buildVotingView(p, votingCtx),
     };
   });
-  const freeformProposals = (bySeason(itemTypes.FICC_PROPOSAL_FREEFORM, seasonNumber)[0] || {}).items || [];
+  const freeformProposals = ((bySeason(itemTypes.FICC_PROPOSAL_FREEFORM, seasonNumber)[0] || {}).items || []).map((p) => {
+    const { votes: _votes, vetoed: _vetoed, promoted: _promoted, ...rest } = p;
+    return { ...rest, voting: buildVotingView(p, votingCtx) };
+  });
   const ficcNotesItem = bySeason(itemTypes.FICC_NOTES, seasonNumber)[0] || {};
+  const techRegsItem = bySeason(itemTypes.TECHREGS, seasonNumber)[0] || {};
 
   return {
     lore: one(itemTypes.LORE) || {},
@@ -194,7 +216,9 @@ function assembleData(items, viewedSeason) {
       schedule: seasonItem.schedule || [],
       allowedTiers: seasonItem.allowedTiers || [],
       disallowedTypes: seasonItem.disallowedTypes || [],
-      archived: seasonItem.archived || false,
+      ended: seasonItem.ended || false,
+      championDriverId: seasonChampionDriverId,
+      vetoUsedBy: seasonItem.vetoUsedBy || null,
     },
     // All seasons that exist (for a season switcher) plus which one is
     // "current" (the default/write target) vs. "viewed" (what this
@@ -203,7 +227,10 @@ function assembleData(items, viewedSeason) {
     seasons: allSeasonItems.map((s) => ({ seasonNumber: s.seasonNumber, label: s.label || String(s.seasonNumber) })),
     currentSeasonNumber,
     viewedSeasonNumber: seasonNumber,
-    technicalRegulations: (one(itemTypes.TECHREGS) || {}).items || [],
+    technicalRegulations: (techRegsItem.items || []).map((r) => {
+      const { votes: _votes, vetoed: _vetoed, promoted: _promoted, ...rest } = r;
+      return { ...rest, voting: buildVotingView(r, votingCtx) };
+    }),
     ficcBacklog: {
       notes: ficcNotesItem.notes || [],
       proposals: [...driverProposals, ...freeformProposals],

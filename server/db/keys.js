@@ -27,7 +27,11 @@ const keys = {
   // Standings/Upgrade Tracker/FICC edits go unless a season is specified).
   currentSeasonPointer: () => ({ PK: "CONFIG#CURRENTSEASON", SK: "PROFILE" }),
   lore: () => ({ PK: "LORE#1", SK: "PROFILE" }),
-  techRegs: () => ({ PK: "TECHREGS#1", SK: "PROFILE" }),
+  // Season-scoped (not one shared global list) — a regulation that
+  // applied in one season and isn't renewed shouldn't vanish from that
+  // season's historical record, which a single mutable global list can't
+  // represent.
+  techRegs: (season) => ({ PK: "TECHREGS", SK: `SEASON#${requireSeason(season)}` }),
   ficcNotes: (season) => ({ PK: "FICCNOTES", SK: `SEASON#${requireSeason(season)}` }),
   ficcProposal: (driverId, season) => ({ PK: `FICCPROPOSAL#${driverId}`, SK: `SEASON#${requireSeason(season)}` }),
   ficcProposalFreeform: (season) => ({ PK: "FICCPROPOSALFREEFORM", SK: `SEASON#${requireSeason(season)}` }),
