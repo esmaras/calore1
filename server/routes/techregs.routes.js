@@ -7,7 +7,7 @@ const { ensureIds, castVote, castVeto, championDriverId, loadVotingContext, isCo
 
 const router = express.Router();
 
-const REG_CONTENT_FIELDS = ["name", "type", "explanation", "expiration"];
+const REG_CONTENT_FIELDS = ["name", "explanation"];
 
 // Season-scoped (see keys.techRegs) — a whole-array replace. Every item
 // gets a stable id (backfilled here if missing) so a vote can be attached
@@ -40,7 +40,7 @@ function resolveVoterDriverId(req) {
 }
 
 function regFieldsFromReg(r) {
-  return { name: r.name, type: r.type, explanation: r.explanation, expiration: r.expiration };
+  return { name: r.name, explanation: r.explanation };
 }
 
 // A driver votes on whether an *expiring* regulation gets renewed for

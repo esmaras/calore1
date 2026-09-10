@@ -181,9 +181,7 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
       driverId,
       driverName: driver.driver,
       regulationName: p.regulationName ?? null,
-      type: p.type ?? null,
       explanation: p.explanation ?? null,
-      expiration: p.expiration ?? null,
       voting: buildVotingView(p, votingCtx),
     };
   });
@@ -232,20 +230,34 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
       return { ...rest, voting: buildVotingView(r, votingCtx) };
     }),
     ficcBacklog: {
-      notes: ficcNotesItem.notes || [],
+      notes: ficcNotesItem.notes || "",
       proposals: [...driverProposals, ...freeformProposals],
     },
     standings: { raceLabels, drivers: standingsRows, pointsTable },
     inventory: { upgrades: upgradePartsWithAvailability, sponsors },
     upgradeTracker: { rule: legendItem.rule || "", entries: upgradeEntries, legend: legendItem.legend || [] },
     hallOfFame: {
-      seasonLog: (one(itemTypes.HALLOFFAME_SEASONLOG) || {}).items || [],
+      // Auto-populated, not admin-typed: one row per season that's
+      // actually been ended, with the champion (and their team, standing
+      // in for "constructor" — this league is one driver per team) read
+      // straight from that season's own final standings. A season that
+      // hasn't ended yet has no business showing a "champion" — nothing
+      // is final until End Season says so.
+      seasonLog: allSeasonItems
+        .filter((s) => s.ended)
+        .map((s) => {
+          const champId = championDriverId(items, s.seasonNumber, driverItems);
+          const champ = champId ? driverById[champId] : null;
+          return {
+            season: s.seasonNumber,
+            champion: champ?.driver ?? null,
+            constructorChampion: champ?.teamName ?? null,
+          };
+        }),
       missedRaceLog: (one(itemTypes.HALLOFFAME_MISSEDRACELOG) || {}).items || [],
     },
     offSeasonBudget: {
       regulations: (one(itemTypes.OFFSEASON_REGULATIONS) || {}).items || [],
-      driverTracker: (one(itemTypes.OFFSEASON_DRIVERTRACKER) || {}).items || [],
-      midSeasonWindow: (one(itemTypes.OFFSEASON_MIDSEASONWINDOW) || {}).items || [],
       winningsByDriver,
     },
     // Not part of the legacy shape, but useful to the client going

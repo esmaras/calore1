@@ -10,6 +10,7 @@
     "dynamodb:down": "docker compose down",
     "db:create-table": "node --env-file=.env.dev scripts/create-dynamodb-table.js",
     "db:migrate": "node --env-file=.env.dev scripts/migrate-to-dynamodb.js",
+    "db:migrate-schema": "node --env-file=.env.dev scripts/run-migrations.js",
     "db:export": "node --env-file=.env.dev scripts/export-to-json.js",
     "test": "node --env-file=.env.dev --test tests/"
   },

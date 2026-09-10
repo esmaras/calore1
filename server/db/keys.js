@@ -38,12 +38,20 @@ const keys = {
   hallOfFameSeasonLog: () => ({ PK: "HALLOFFAME#SEASONLOG", SK: "PROFILE" }),
   hallOfFameMissedRaceLog: () => ({ PK: "HALLOFFAME#MISSEDRACELOG", SK: "PROFILE" }),
   offSeasonRegulations: () => ({ PK: "OFFSEASON#REGULATIONS", SK: "PROFILE" }),
-  offSeasonDriverTracker: () => ({ PK: "OFFSEASON#DRIVERTRACKER", SK: "PROFILE" }),
-  offSeasonMidSeasonWindow: () => ({ PK: "OFFSEASON#MIDSEASONWINDOW", SK: "PROFILE" }),
   // One row per driver per season — what that driver won based on their
   // final standing in `season`. Read by the next season's creation to
   // seed each driver's starting budget carryover.
   offSeasonWinnings: (driverId, season) => ({ PK: `OFFSEASONWINNINGS#${driverId}`, SK: `SEASON#${requireSeason(season)}` }),
+  // Tracking record for the migrations runner (see migrations/) — one item
+  // per migration file, written the moment it finishes running. Its mere
+  // existence means "applied"; the runner skips any migration whose record
+  // it finds, so this doubles as the audit trail of what ran and when.
+  migration: (name) => ({ PK: `MIGRATION#${name}`, SK: "APPLIED" }),
+  // One item per database write, written directly by server/db/repo.js
+  // itself (every write path funnels through there) rather than by
+  // individual routes — see server/routes/auditlog.routes.js for the
+  // admin-only page that reads these back.
+  auditLogEntry: (id) => ({ PK: `AUDITLOG#${id}`, SK: "ENTRY" }),
 };
 
 const itemTypes = {
@@ -66,9 +74,9 @@ const itemTypes = {
   HALLOFFAME_SEASONLOG: "HALLOFFAME_SEASONLOG",
   HALLOFFAME_MISSEDRACELOG: "HALLOFFAME_MISSEDRACELOG",
   OFFSEASON_REGULATIONS: "OFFSEASON_REGULATIONS",
-  OFFSEASON_DRIVERTRACKER: "OFFSEASON_DRIVERTRACKER",
-  OFFSEASON_MIDSEASONWINDOW: "OFFSEASON_MIDSEASONWINDOW",
   OFFSEASON_WINNINGS: "OFFSEASON_WINNINGS",
+  MIGRATION: "MIGRATION",
+  AUDIT_LOG: "AUDIT_LOG",
 };
 
 function slugify(text) {

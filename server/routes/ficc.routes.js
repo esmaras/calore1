@@ -5,7 +5,7 @@ const { requireSelfOrAdmin, requireAdmin } = require("../auth/middleware");
 const { resolveSeason } = require("../db/currentSeason");
 const { castVote, castVeto, championDriverId, loadVotingContext, ensureIds, isContentLocked, findLockedContentViolation, mergeVotingState } = require("../db/voting");
 
-const PROPOSAL_CONTENT_FIELDS = ["regulationName", "type", "explanation", "expiration", "driverName"];
+const PROPOSAL_CONTENT_FIELDS = ["regulationName", "explanation", "driverName"];
 
 const router = express.Router();
 
@@ -17,7 +17,7 @@ function resolveVoterDriverId(req) {
 }
 
 function regFieldsFromProposal(p) {
-  return { name: p.regulationName, type: p.type, explanation: p.explanation, expiration: p.expiration };
+  return { name: p.regulationName, explanation: p.explanation };
 }
 
 // Notes and the freeform proposal list are season-scoped now (a rules
@@ -32,7 +32,7 @@ function regFieldsFromProposal(p) {
 // itemType/season and breaking assemble.js's group-by-itemType logic).
 router.put("/notes", requireAdmin, async (req, res) => {
   const { notes } = req.body || {};
-  if (!Array.isArray(notes)) return res.status(400).json({ error: "notes must be an array" });
+  if (typeof notes !== "string") return res.status(400).json({ error: "notes must be a string" });
   const season = await resolveSeason(req.query.season);
   const item = { ...keys.ficcNotes(season), itemType: itemTypes.FICC_NOTES, season, notes };
   await repo.putItem(item);
@@ -89,15 +89,13 @@ router.put("/proposals/:driverId", requireSelfOrAdmin("driverId"), async (req, r
     return res.status(400).json({ error: "This proposal already has votes cast — its content is locked" });
   }
 
-  const { regulationName, type, explanation, expiration } = req.body || {};
+  const { regulationName, explanation } = req.body || {};
   const updated = await repo.updateItem(keys.ficcProposal(driverId, season), {
     itemType: itemTypes.FICC_PROPOSAL,
     driverId,
     season,
     regulationName: regulationName ?? null,
-    type: type ?? null,
     explanation: explanation ?? null,
-    expiration: expiration ?? null,
   });
   res.json(updated);
 });

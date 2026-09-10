@@ -43,7 +43,8 @@ help:
 	@echo "    make ecr-login       Authenticate Docker with ECR"
 	@echo "    make build           Build the app Docker image"
 	@echo "    make push            Push the app image to ECR"
-	@echo "    make deploy          Full deploy: build, push, tf-apply, trigger App Runner deployment"
+	@echo "    make migrate         Run pending migrations/ against calore1-<ENV>-app (also runs automatically as part of deploy)"
+	@echo "    make deploy          Full deploy: build, push, migrate, tf-apply, trigger App Runner deployment"
 	@echo "    make logs            Tail App Runner application logs"
 	@echo "    make url             Print the deployed app's URL"
 	@echo ""
@@ -84,6 +85,11 @@ test:
 # ──────────────────────────────────────────────────────────────────────────────
 # AWS Deploy
 # ──────────────────────────────────────────────────────────────────────────────
+.PHONY: migrate
+migrate:
+	@echo "Running migrations against $(PROJECT)-$(ENV)-app ($(AWS_REGION))..."
+	@unset DYNAMODB_ENDPOINT; DYNAMODB_TABLE=$(PROJECT)-$(ENV)-app AWS_REGION=$(AWS_REGION) node scripts/run-migrations.js
+
 .PHONY: ecr-login
 ecr-login:
 	aws ecr get-login-password --region $(AWS_REGION) | \
@@ -168,13 +174,16 @@ tf-destroy:
 # help`/`make build` don't require AWS credentials or an existing parameter.
 SESSION_SECRET_SSM_ARN ?= $(shell aws ssm get-parameter --name "/$(PROJECT)/$(ENV)/session_secret" --region $(AWS_REGION) --query Parameter.ARN --output text 2>/dev/null)
 
-# Full deploy: build, push, apply terraform (creating the App Runner
-# service on first run, or updating its config on later runs), then
-# explicitly trigger a fresh deployment of the just-pushed image — App
-# Runner's auto_deployments_enabled is off (see infra/main.tf), so pushing
-# a new image alone does not roll it out.
+# Full deploy: build, push, run any pending migrations/ against this
+# environment's table (before the new image goes live — see
+# migrations/README.md, this is what the tech-regs data-loss incident
+# should have had), apply terraform (creating the App Runner service on
+# first run, or updating its config on later runs), then explicitly
+# trigger a fresh deployment of the just-pushed image — App Runner's
+# auto_deployments_enabled is off (see infra/main.tf), so pushing a new
+# image alone does not roll it out.
 .PHONY: deploy
-deploy: build push tf-apply
+deploy: build push migrate tf-apply
 	@ARN=$$(cd $(TF_DIR) && terraform output -raw apprunner_service_arn 2>/dev/null); \
 	if [ -z "$$ARN" ]; then echo "No App Runner service yet — check tf-apply output above."; exit 1; fi; \
 	aws apprunner start-deployment --service-arn "$$ARN" --region $(AWS_REGION) --query 'OperationId' --output text

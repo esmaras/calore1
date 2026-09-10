@@ -9,8 +9,6 @@ const router = express.Router();
 const itemsOnly = (body) => ({ items: body.items });
 
 router.use("/regulations", blobRoute(keys.offSeasonRegulations, itemTypes.OFFSEASON_REGULATIONS, itemsOnly));
-router.use("/driver-tracker", blobRoute(keys.offSeasonDriverTracker, itemTypes.OFFSEASON_DRIVERTRACKER, itemsOnly));
-router.use("/mid-season-window", blobRoute(keys.offSeasonMidSeasonWindow, itemTypes.OFFSEASON_MIDSEASONWINDOW, itemsOnly));
 
 // One deterministic winnings figure per driver per season, keyed off that
 // season's own final standings (rendered as a row-per-driver list on the

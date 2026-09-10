@@ -392,9 +392,7 @@ function saveFiccProposal(driverId) {
   scheduleSave(`ficc-proposal:${driverId}`, () =>
     apiPut(`/api/ficc/proposals/${driverId}${seasonQuery()}`, {
       regulationName: p.regulationName,
-      type: p.type,
       explanation: p.explanation,
-      expiration: p.expiration,
     })
   );
 }
@@ -521,20 +519,8 @@ function saveOffseasonRegs() {
   scheduleSave("offseason-regs", () => apiPut("/api/offseason/regulations", { items: DATA.offSeasonBudget.regulations }));
 }
 
-function saveOffseasonDriverTracker() {
-  scheduleSave("offseason-dt", () => apiPut("/api/offseason/driver-tracker", { items: DATA.offSeasonBudget.driverTracker }));
-}
-
-function saveOffseasonMidSeason() {
-  scheduleSave("offseason-msw", () => apiPut("/api/offseason/mid-season-window", { items: DATA.offSeasonBudget.midSeasonWindow }));
-}
-
 function saveOffseasonWinnings(driverId, winnings) {
   scheduleSave(`offseason-winnings:${driverId}`, () => apiPut(`/api/offseason/winnings/${driverId}${seasonQuery()}`, { winnings }));
-}
-
-function saveHofSeasonLog() {
-  scheduleSave("hof-seasonlog", () => apiPut("/api/halloffame/season-log", { items: DATA.hallOfFame.seasonLog }));
 }
 
 function saveHofMissedRaceLog() {
@@ -1594,7 +1580,7 @@ function renderTechRegs(container) {
   panel.appendChild(h("h2", {}, "1961 Technical Regulations"));
   if (!allowed) panel.appendChild(h("p", { class: "muted panel-note" }, "Managed by the league admin."));
   const table = h("table");
-  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Regulation"), h("th", {}, "Type"), h("th", {}, "Explanation"), h("th", {}, "Expiration"), h("th", {}, "Voting"), h("th", {}, ""))));
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Regulation"), h("th", {}, "Explanation"), h("th", {}, "Voting"), h("th", {}, ""))));
   const tbody = h("tbody");
   const vetoEligible = canUseVeto();
   DATA.technicalRegulations.forEach((r, i) => {
@@ -1602,21 +1588,17 @@ function renderTechRegs(container) {
     const editable = allowed && !isVotingLocked(r.voting);
     if (editable) {
       const tdName = h("td"); tdName.appendChild(textInput(r.name, (v) => { r.name = v; saveTechRegs(); }));
-      const tdType = h("td"); tdType.appendChild(textInput(r.type, (v) => { r.type = v; saveTechRegs(); }));
       const tdExp = h("td"); tdExp.appendChild(textareaInput(r.explanation, (v) => { r.explanation = v; saveTechRegs(); }, 2));
-      const tdExpr = h("td"); tdExpr.appendChild(textInput(r.expiration, (v) => { r.expiration = v; saveTechRegs(); }));
       const tdDel = h("td");
       const b = h("button", { class: "btn small" }, "✕");
       b.addEventListener("click", () => { DATA.technicalRegulations.splice(i, 1); saveTechRegs(); renderActive(); });
       tdDel.appendChild(b);
-      tr.appendChild(tdName); tr.appendChild(tdType); tr.appendChild(tdExp); tr.appendChild(tdExpr);
+      tr.appendChild(tdName); tr.appendChild(tdExp);
       tr.appendChild(buildVotingTd(r, vetoEligible, castTechRegVote, castTechRegVeto));
       tr.appendChild(tdDel);
     } else {
       tr.appendChild(h("td", {}, r.name));
-      tr.appendChild(h("td", {}, r.type));
       tr.appendChild(h("td", {}, r.explanation));
-      tr.appendChild(h("td", {}, r.expiration));
       tr.appendChild(buildVotingTd(r, vetoEligible, castTechRegVote, castTechRegVeto));
       tr.appendChild(h("td", {}));
     }
@@ -1626,7 +1608,7 @@ function renderTechRegs(container) {
   panel.appendChild(table);
   if (allowed) {
     const addBtn = h("button", { class: "btn" }, "+ Add regulation");
-    addBtn.addEventListener("click", () => { DATA.technicalRegulations.push({ name: "", type: "", explanation: "", expiration: "" }); saveTechRegs(); renderActive(); });
+    addBtn.addEventListener("click", () => { DATA.technicalRegulations.push({ name: "", explanation: "" }); saveTechRegs(); renderActive(); });
     panel.appendChild(addBtn);
   }
   container.appendChild(panel);
@@ -1637,19 +1619,17 @@ function renderFiccBacklog(container) {
   const notesAllowed = isAdmin();
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "FICC Rules Backlog"));
-  DATA.ficcBacklog.notes.forEach((note, i) => {
-    if (notesAllowed) {
-      panel.appendChild(textareaInput(note, (v) => { DATA.ficcBacklog.notes[i] = v; saveFiccNotes(); }, 2));
-    } else {
-      panel.appendChild(h("p", { class: "muted" }, note));
-    }
-  });
+  if (notesAllowed) {
+    panel.appendChild(textareaInput(DATA.ficcBacklog.notes, (v) => { DATA.ficcBacklog.notes = v; saveFiccNotes(); }, 4));
+  } else if (DATA.ficcBacklog.notes) {
+    panel.appendChild(h("p", { class: "muted", style: "white-space: pre-wrap;" }, DATA.ficcBacklog.notes));
+  }
   container.appendChild(panel);
 
   const panel2 = h("div", { class: "panel" });
   panel2.appendChild(h("h2", {}, "Proposed Regulations"));
   const table = h("table");
-  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Proposed Regulation"), h("th", {}, "Type"), h("th", {}, "Explanation"), h("th", {}, "Expiration"), h("th", {}, "Voting"), h("th", {}, ""))));
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Proposed Regulation"), h("th", {}, "Explanation"), h("th", {}, "Voting"), h("th", {}, ""))));
   const tbody = h("tbody");
   const vetoEligible = canUseVeto();
   // The first N proposal rows are INDEX'd from the driver lineup in the sheet
@@ -1672,16 +1652,12 @@ function renderFiccBacklog(container) {
     const onProposalChange = isDriverRow ? () => saveFiccProposal(p.driverId) : () => saveFiccFreeform();
     if (rowAllowed) {
       const tdReg = h("td"); tdReg.appendChild(textInput(p.regulationName, (v) => { p.regulationName = v; onProposalChange(); }));
-      const tdType = h("td"); tdType.appendChild(textInput(p.type, (v) => { p.type = v; onProposalChange(); }));
       const tdExp = h("td"); tdExp.appendChild(textareaInput(p.explanation, (v) => { p.explanation = v; onProposalChange(); }, 2));
-      const tdExpr = h("td"); tdExpr.appendChild(textInput(p.expiration, (v) => { p.expiration = v; onProposalChange(); }));
-      tr.appendChild(tdDriver); tr.appendChild(tdReg); tr.appendChild(tdType); tr.appendChild(tdExp); tr.appendChild(tdExpr);
+      tr.appendChild(tdDriver); tr.appendChild(tdReg); tr.appendChild(tdExp);
     } else {
       tr.appendChild(tdDriver);
       tr.appendChild(h("td", {}, p.regulationName || ""));
-      tr.appendChild(h("td", {}, p.type || ""));
       tr.appendChild(h("td", {}, p.explanation || ""));
-      tr.appendChild(h("td", {}, p.expiration || ""));
     }
     tr.appendChild(
       isDriverRow
@@ -1701,7 +1677,7 @@ function renderFiccBacklog(container) {
   panel2.appendChild(table);
   if (isAdmin()) {
     const addBtn = h("button", { class: "btn" }, "+ Add proposal");
-    addBtn.addEventListener("click", () => { DATA.ficcBacklog.proposals.push({ driverName: null, regulationName: "", type: "", explanation: "", expiration: "" }); saveFiccFreeform(); renderActive(); });
+    addBtn.addEventListener("click", () => { DATA.ficcBacklog.proposals.push({ driverName: null, regulationName: "", explanation: "" }); saveFiccFreeform(); renderActive(); });
     panel2.appendChild(addBtn);
   }
   container.appendChild(panel2);
@@ -1765,34 +1741,6 @@ function renderOffSeason(container) {
   winTable.appendChild(winTbody);
   winPanel.appendChild(winTable);
   container.appendChild(winPanel);
-
-  container.appendChild(genericTrackerPanel(
-    "Driver Off-Season Tracker",
-    DATA.offSeasonBudget.driverTracker,
-    [
-      { key: "driver", label: "Driver", type: "select", options: () => DATA.drivers.map((d) => d.driver) },
-      { key: "upgradeOut", label: "Upgrade Exchanged Out" },
-      { key: "upgradeIn", label: "Upgrade Exchanged In" },
-      { key: "heatCardsReceived", label: "Heat Cards Received" },
-      { key: "winningsReceived", label: "Winnings Received", type: "number" },
-      { key: "note", label: "Note" },
-    ],
-    () => ({ driver: null, upgradeOut: "", upgradeIn: "", heatCardsReceived: "", winningsReceived: null, note: "" }),
-    { allowed, onSave: saveOffseasonDriverTracker }
-  ));
-
-  container.appendChild(genericTrackerPanel(
-    "Mid-Season Upgrade Window",
-    DATA.offSeasonBudget.midSeasonWindow,
-    [
-      { key: "driver", label: "Driver", type: "select", options: () => DATA.drivers.map((d) => d.driver) },
-      { key: "upgradeOut", label: "Upgrade Swapped Out" },
-      { key: "upgradeIn", label: "Upgrade Swapped In" },
-      { key: "note", label: "Note" },
-    ],
-    () => ({ driver: null, upgradeOut: "", upgradeIn: "", note: "" }),
-    { allowed, onSave: saveOffseasonMidSeason }
-  ));
 }
 
 // ---------- Hall of Fame ----------
@@ -1800,34 +1748,19 @@ function renderHallOfFame(container) {
   const allowed = isAdmin();
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "Season-by-Season Champion Log"));
-  if (!allowed) panel.appendChild(h("p", { class: "muted panel-note" }, "Managed by the league admin."));
+  panel.appendChild(h("p", { class: "muted panel-note" }, "Auto-populated from final standings once a season is ended — nothing to edit here."));
   const table = h("table");
   table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Season"), h("th", {}, "Driver's Champion"), h("th", {}, "Constructor's Champion"))));
   const tbody = h("tbody");
   DATA.hallOfFame.seasonLog.forEach((row) => {
     const tr = h("tr");
     tr.appendChild(h("td", { class: "cell-computed" }, String(row.season)));
-    if (allowed) {
-      const tdChamp = h("td"); tdChamp.appendChild(textInput(row.champion, (v) => { row.champion = v; saveHofSeasonLog(); }));
-      const tdCons = h("td"); tdCons.appendChild(textInput(row.constructorChampion, (v) => { row.constructorChampion = v; saveHofSeasonLog(); }));
-      tr.appendChild(tdChamp); tr.appendChild(tdCons);
-    } else {
-      tr.appendChild(h("td", {}, row.champion || ""));
-      tr.appendChild(h("td", {}, row.constructorChampion || ""));
-    }
+    tr.appendChild(h("td", {}, row.champion || ""));
+    tr.appendChild(h("td", {}, row.constructorChampion || ""));
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
   panel.appendChild(table);
-  if (allowed) {
-    const addBtn = h("button", { class: "btn" }, "+ Add season");
-    addBtn.addEventListener("click", () => {
-      const next = (DATA.hallOfFame.seasonLog.at(-1)?.season || 0) + 1;
-      DATA.hallOfFame.seasonLog.push({ season: next, champion: null, constructorChampion: null });
-      saveHofSeasonLog(); renderActive();
-    });
-    panel.appendChild(addBtn);
-  }
   container.appendChild(panel);
 
   container.appendChild(genericTrackerPanel(
@@ -1895,6 +1828,51 @@ function renderLore(container) {
     panel3.appendChild(h("p", { class: "muted" }, l.backstoryNote || ""));
   }
   container.appendChild(panel3);
+}
+
+// ---------- Audit Log (admin only) ----------
+// Read-only — entries are written server-side by every repo.js write path,
+// not by any client action, so there's nothing here to save.
+function fmtAuditValue(v) {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
+function renderAuditLog(container) {
+  const panel = h("div", { class: "panel" });
+  panel.appendChild(h("h2", {}, "Audit Log"));
+  panel.appendChild(h("p", { class: "muted panel-note" }, "Every database write, newest first — who changed what, and the before/after values."));
+  const table = h("table");
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "When"), h("th", {}, "Who"), h("th", {}, "Action"), h("th", {}, "Record"), h("th", {}, "Changes"))));
+  const tbody = h("tbody");
+  table.appendChild(tbody);
+  panel.appendChild(table);
+  container.appendChild(panel);
+
+  apiGet("/api/admin/audit-log")
+    .then(({ entries }) => {
+      if (!entries.length) {
+        tbody.appendChild(h("tr", {}, h("td", { colspan: "5", class: "muted" }, "No changes recorded yet.")));
+        return;
+      }
+      entries.forEach((entry) => {
+        const tr = h("tr");
+        tr.appendChild(h("td", {}, new Date(entry.timestamp).toLocaleString()));
+        tr.appendChild(h("td", {}, entry.actor));
+        tr.appendChild(h("td", {}, entry.action));
+        tr.appendChild(h("td", {}, `${entry.targetItemType || "?"} ${entry.targetKey?.PK || ""} / ${entry.targetKey?.SK || ""}`));
+        const tdChanges = h("td");
+        entry.changes.forEach((c) => {
+          tdChanges.appendChild(h("div", {}, `${c.field}: ${fmtAuditValue(c.before)} → ${fmtAuditValue(c.after)}`));
+        });
+        tr.appendChild(tdChanges);
+        tbody.appendChild(tr);
+      });
+    })
+    .catch((err) => {
+      tbody.appendChild(h("tr", {}, h("td", { colspan: "5", class: "muted" }, `Could not load audit log: ${err.message}`)));
+    });
 }
 
 // ---------- My Account (profile) ----------
@@ -2110,9 +2088,9 @@ function buildInventorySummary() {
 
 function buildTechRegsSummary() {
   const table = h("table");
-  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Regulation"), h("th", {}, "Type"))));
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Regulation"))));
   const tbody = h("tbody");
-  for (const r of DATA.technicalRegulations) tbody.appendChild(h("tr", {}, h("td", {}, r.name), h("td", {}, r.type)));
+  for (const r of DATA.technicalRegulations) tbody.appendChild(h("tr", {}, h("td", {}, r.name)));
   table.appendChild(tbody);
   return table;
 }
@@ -2300,6 +2278,7 @@ const TABS = [
   { id: "offseason", label: "Off-Season Budget", render: renderOffSeason },
   { id: "hof", label: "Hall of Fame", render: renderHallOfFame },
   { id: "lore", label: "Lore & Trophies", render: renderLore },
+  { id: "auditlog", label: "Audit Log", render: renderAuditLog, adminOnly: true },
   { id: "profile", label: "My Account", render: renderProfile },
 ];
 
@@ -2315,8 +2294,10 @@ function renderTabs() {
   nav.innerHTML = "";
   // "My Account" needs a real logged-in account — anonymous visitors never
   // see it (and can't land on it: its id can't come from anywhere else).
-  const visibleTabs = CURRENT_USER ? TABS : TABS.filter((t) => t.id !== "profile");
+  // adminOnly tabs (e.g. Audit Log) are hidden from everyone else too.
+  const visibleTabs = TABS.filter((t) => (t.id !== "profile" || CURRENT_USER) && (!t.adminOnly || isAdmin()));
   if (!CURRENT_USER && activeTab === "profile") activeTab = "home";
+  if (!isAdmin() && TABS.find((t) => t.id === activeTab)?.adminOnly) activeTab = "home";
   for (const t of visibleTabs) {
     const btn = h("button", { class: "tab-btn" + (t.id === activeTab ? " active" : "") }, t.label);
     btn.addEventListener("click", () => goToTab(t.id));
