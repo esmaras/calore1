@@ -220,9 +220,11 @@ th.sortable.sorted { color: var(--text); }
    pick's card art, collapsed to zero height by default and revealed with
    a smooth grid-rows transition (same technique as .inv-detail above)
    when the mouse is over that driver's row — a glanceable "hand of cards"
-   that doesn't cost vertical space until you actually want to look.
-   .open (added by app.js on tap, see SUPPORTS_HOVER) mirrors :hover for
-   touch devices, which don't have a real hover state to trigger this. */
+   that doesn't cost vertical space until you actually want to look. .open
+   (added by app.js, via the row itself or the mobile toggle button below)
+   mirrors :hover for touch devices, which don't have a real hover state
+   to trigger this. */
+tr.upgrade-row { cursor: pointer; }
 .upgrade-cell { display: flex; flex-direction: column; }
 .upgrade-cell-card-wrap {
   display: grid;
@@ -250,7 +252,44 @@ tr.upgrade-row.open .upgrade-cell-card-inner {
   overflow: visible;
 }
 
-/* Reusable "hover (or tap, on touch devices — see SUPPORTS_HOVER in
+/* An explicit, always-reliable tap target for opening/closing a driver's
+   row — a <tr> isn't a naturally interactive element the way a real
+   <button> is, and relying on it to fire click reliably from a tap on
+   every touch browser didn't hold up in practice. Hidden on wider
+   viewports, where hovering the row already does this and a whole extra
+   column would just be clutter. */
+.upgrade-row-toggle-col {
+  display: none;
+  width: 1%;
+  padding-right: 4px;
+}
+@media (max-width: 700px) {
+  .upgrade-row-toggle-col {
+    display: table-cell;
+  }
+}
+.upgrade-row-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.upgrade-row-toggle span {
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+tr.upgrade-row.open .upgrade-row-toggle span {
+  transform: rotate(90deg);
+}
+
+/* Reusable "hover (or tap, on touch devices — see attachZoomCard in
    app.js) to pop up the real card art" trigger. Used on both the Upgrade
    Tracker page (wrapping an always-visible 84px thumbnail) and the Home
    page (wrapping a part-number badge with no visible thumbnail at all) —

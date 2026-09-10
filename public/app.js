@@ -1154,7 +1154,7 @@ function renderUpgradeTracker(container) {
   if (!admin) panel.appendChild(h("p", { class: "muted panel-note" }, "Sponsor and modification are managed by the league admin. Drivers can select their own upgrade parts below."));
   const wrap = h("div", { class: "table-scroll" });
   const table = h("table");
-  const headRow = h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Sponsor"), h("th", {}, "Budget"), h("th", {}, "Carryover"));
+  const headRow = h("tr", {}, h("th", { class: "upgrade-row-toggle-col" }), h("th", {}, "Driver"), h("th", {}, "Sponsor"), h("th", {}, "Budget"), h("th", {}, "Carryover"));
   for (let i = 0; i < MAX_UPGRADE_SLOTS; i++) headRow.appendChild(h("th", {}, `Upgrade ${i + 1}`));
   headRow.appendChild(h("th", {}, "Modification"));
   headRow.appendChild(h("th", {}, "Remaining"));
@@ -1163,19 +1163,33 @@ function renderUpgradeTracker(container) {
   const sponsorNames = DATA.inventory.sponsors.map((s) => s.name);
   for (const e of DATA.upgradeTracker.entries) {
     const tr = h("tr", { class: "upgrade-row" });
-    // Not gated on hover support (see the comment above closeAllZoomWraps)
-    // — always attached so a tap always works. Harmless for real mouse
-    // users too: :hover already reveals the row on its own, and a stray
-    // click just sets the same .open state :hover would've implied anyway.
-    tr.addEventListener("click", (ev) => {
-      if (ev.target.closest("select, input, button, a, .upgrade-zoom-trigger")) return;
+    const toggleRow = () => {
       tr.classList.toggle("open");
       // Any zoomed card popup is a body-level floating element with no
       // DOM relationship to this row (see attachZoomCard) — closing on
       // any row open/close avoids one being left floating with no
       // visible row underneath it.
       closeAllZoomWraps(null);
+    };
+    // Not gated on hover support — always attached so a tap always works.
+    // Harmless for real mouse users too: :hover already reveals the row
+    // on its own, and a stray click just sets the same .open state
+    // :hover would've implied anyway. In practice a <tr> (not a
+    // naturally interactive element, unlike a real <button>) doesn't
+    // reliably fire click from a tap on every touch browser, so this is
+    // a secondary path — the toggle button below (visible on narrow
+    // viewports; see .upgrade-row-toggle-col in style.css) is the
+    // primary, guaranteed-reliable one for mobile.
+    tr.addEventListener("click", (ev) => {
+      if (ev.target.closest("select, input, button, a, .upgrade-zoom-trigger")) return;
+      toggleRow();
     });
+    const toggleBtn = h("button", { class: "upgrade-row-toggle", type: "button", "aria-label": "Toggle upgrade cards" }, h("span", {}, "▸"));
+    toggleBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      toggleRow();
+    });
+    tr.appendChild(h("td", { class: "upgrade-row-toggle-col" }, toggleBtn));
     tr.appendChild(h("td", {}, driverBadge(e.driver)));
     const sponsorTd = h("td");
     if (admin) {
@@ -1237,7 +1251,7 @@ function renderUpgradeTracker(container) {
       const message = e.complianceIssues
         .map((issue) => `Part #${issue.partNumber} (${issue.partType}) is oversubscribed — ${issue.higherPriorityCount} higher-priority driver(s) also selected it.`)
         .join(" ");
-      const detailTd = h("td", { colspan: String(6 + MAX_UPGRADE_SLOTS) }, h("span", { class: "compliance-icon" }, "!"), " " + message);
+      const detailTd = h("td", { colspan: String(7 + MAX_UPGRADE_SLOTS) }, h("span", { class: "compliance-icon" }, "!"), " " + message);
       tbody.appendChild(h("tr", { class: "compliance-detail-row" }, detailTd));
     }
   }
