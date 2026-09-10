@@ -1037,6 +1037,66 @@ function renderAddDriverForm() {
 }
 
 // ---------- Upgrade Tracker ----------
+// Touch devices have no real :hover, so the "hover to reveal" card-zoom
+// effect (see .upgrade-zoom-trigger in style.css) needs a tap-based
+// fallback there instead — SUPPORTS_HOVER decides which one app.js wires
+// up. Checked once: a device's hover capability doesn't change mid-session.
+const SUPPORTS_HOVER = window.matchMedia("(hover: hover)").matches;
+
+function closeAllZoomTriggers(except) {
+  document.querySelectorAll(".upgrade-zoom-trigger.zoom-open").forEach((el) => {
+    if (el !== except) el.classList.remove("zoom-open");
+  });
+}
+if (!SUPPORTS_HOVER) {
+  // Tapping anywhere that isn't a zoom trigger closes whatever's open —
+  // tapping a trigger itself is handled by attachZoomCard below, which
+  // runs first (event bubbles from the trigger up to here).
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".upgrade-zoom-trigger")) closeAllZoomTriggers(null);
+  });
+}
+
+// Adds the actual zoomable card art (see .upgrade-card-zoom-wrap in
+// style.css) to `triggerEl`, which must be the element the card should
+// pop out from — either an always-visible 84px thumbnail (Upgrade
+// Tracker page) or a part-number badge with no visible thumbnail at all
+// (Home page). On devices with real hover this is pure CSS from here;
+// on touch devices, wires a tap to toggle it open/closed instead.
+function attachZoomCard(triggerEl, partNumber) {
+  triggerEl.classList.add("upgrade-zoom-trigger");
+  const img = h("img", { src: partCardImagePath(partNumber), alt: `Part #${partNumber} card`, loading: "lazy" });
+  img.addEventListener("error", () => { img.style.display = "none"; });
+  const zoomWrap = h("div", { class: "upgrade-card-zoom-wrap" }, img);
+  triggerEl.appendChild(zoomWrap);
+
+  // Centers the popup on the trigger's actual on-screen box, computed
+  // fresh each time. CSS's "no inset = fall back to the static position"
+  // trick for position:fixed (used before) gets unreliable once the
+  // trigger sits inside enough nested positioned/grid ancestors — as it
+  // does here (inside the row's collapsing grid wrapper) — landing the
+  // popup offset from the card it's supposed to be zooming. This is exact
+  // regardless of ancestor layout. See the paired
+  // "translate(-50%, -50%) scale(3)" in style.css, which centers the
+  // (differently-sized) zoomed box on this same point.
+  const positionZoom = () => {
+    const rect = triggerEl.getBoundingClientRect();
+    zoomWrap.style.left = `${rect.left + rect.width / 2}px`;
+    zoomWrap.style.top = `${rect.top + rect.height / 2}px`;
+  };
+  triggerEl.addEventListener("mouseenter", positionZoom);
+
+  if (!SUPPORTS_HOVER) {
+    triggerEl.addEventListener("click", (e) => {
+      if (e.target.closest("select, input, button, a")) return;
+      const wasOpen = triggerEl.classList.contains("zoom-open");
+      closeAllZoomTriggers(triggerEl);
+      if (!wasOpen) positionZoom();
+      triggerEl.classList.toggle("zoom-open", !wasOpen);
+    });
+  }
+}
+
 function computeUpgradeCost(partNumber) {
   const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(partNumber));
   if (!u) return 0;
@@ -1086,6 +1146,13 @@ function renderUpgradeTracker(container) {
   const sponsorNames = DATA.inventory.sponsors.map((s) => s.name);
   for (const e of DATA.upgradeTracker.entries) {
     const tr = h("tr", { class: "upgrade-row" });
+    if (!SUPPORTS_HOVER) {
+      tr.addEventListener("click", (ev) => {
+        if (ev.target.closest("select, input, button, a, .upgrade-zoom-trigger")) return;
+        const nowOpen = tr.classList.toggle("open");
+        if (!nowOpen) tr.querySelectorAll(".upgrade-zoom-trigger.zoom-open").forEach((el) => el.classList.remove("zoom-open"));
+      });
+    }
     tr.appendChild(h("td", {}, driverBadge(e.driver)));
     const sponsorTd = h("td");
     if (admin) {
@@ -1113,10 +1180,18 @@ function renderUpgradeTracker(container) {
       }
       if (val != null) {
         const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(val));
-        const img = h("img", { src: partCardImagePath(val), alt: `Part #${val} card`, loading: "lazy" });
-        img.addEventListener("error", () => { img.style.display = "none"; });
+        // The visible 84px thumbnail is its own always-in-flow element,
+        // never repositioned — attachZoomCard's overlay (added to the
+        // wrapping trigger div, not the <img> itself, which can't have
+        // children) is a separate, always out-of-flow element on top of
+        // it, so revealing/hiding the zoomed art on hover (or tap) never
+        // shifts this or the label below it.
+        const thumb = h("img", { class: "upgrade-card-thumb", src: partCardImagePath(val), alt: `Part #${val} card`, loading: "lazy" });
+        thumb.addEventListener("error", () => { thumb.style.display = "none"; });
+        const thumbTrigger = h("div", { class: "upgrade-card-thumb-trigger" }, thumb);
+        attachZoomCard(thumbTrigger, val);
         const cardInner = h("div", { class: "upgrade-cell-card-inner" },
-          img,
+          thumbTrigger,
           h("div", { class: "upgrade-card-label" }, `#${val}${u ? " · " + u.type : ""}`)
         );
         cell.appendChild(h("div", { class: "upgrade-cell-card-wrap" }, cardInner));
@@ -2095,7 +2170,9 @@ function buildUpgradesSummary() {
     const upgradesCell = h("div", { class: "upgrade-mini-list" });
     picked.forEach((partNumber) => {
       const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(partNumber));
-      upgradesCell.appendChild(h("span", { class: "badge" }, `#${partNumber}${u ? " · " + u.type : ""}`));
+      const badge = h("span", { class: "badge" }, `#${partNumber}${u ? " · " + u.type : ""}`);
+      attachZoomCard(badge, partNumber);
+      upgradesCell.appendChild(badge);
     });
     tbody.appendChild(h("tr", {}, h("td", {}, driverBadge(e.driver)), h("td", {}, upgradesCell), h("td", {}, fmtMoney(e.remainingBudget))));
   }
