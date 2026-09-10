@@ -1519,7 +1519,7 @@ function renderSeason(container) {
   if (allowed) {
     addKV("Label", textInput(s.label, (v) => { s.label = v; saveSeasonField({ label: v }); }));
     addKV("Races this season", numberInput(s.racesThisSeason, (v) => { s.racesThisSeason = v; saveSeasonField({ racesThisSeason: v }); }));
-    addKV("Upgrade slots this season", numberInput(s.upgradeSlots, (v) => { s.upgradeSlots = v; saveSeasonField({ upgradeSlots: v }); }));
+    addKV("Upgrade slots this season", numberInput(s.upgradeSlots, (v) => { s.upgradeSlots = v; saveSeasonField({ upgradeSlots: v }); normalizeData(); }));
     addKV("Track selection method", textInput(s.trackSelectionMethod, (v) => { s.trackSelectionMethod = v; saveSeasonField({ trackSelectionMethod: v }); }));
     addKV("Mid-season break after race #", numberInput(s.midSeasonBreakAfterRace, (v) => { s.midSeasonBreakAfterRace = v; saveSeasonField({ midSeasonBreakAfterRace: v }); }));
     addKV("Legends enabled", selectInput(s.legends, ["Yes", "No"], (v) => { s.legends = v; saveSeasonField({ legends: v }); }));
