@@ -1086,6 +1086,22 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest(".upgrade-zoom-trigger")) closeAllZoomWraps(null);
 });
 
+// Builds an always-visible 84px thumbnail wrapped in a hover/tap zoom
+// trigger (see attachZoomCard below) — shared by every "card art" spot
+// (Upgrade Tracker part cells and sponsor cell, Inventory's part/sponsor
+// detail rows) so they all zoom the same way. Returns null instead of a
+// broken image when there's no image path at all (e.g. a sponsor with no
+// mapped card art — see sponsorCardImagePath) — callers skip the whole
+// card-art wrapper in that case rather than showing an empty one.
+function buildCardThumb(imageSrc, altText) {
+  if (!imageSrc) return null;
+  const thumb = h("img", { class: "upgrade-card-thumb", src: imageSrc, alt: altText, loading: "lazy" });
+  thumb.addEventListener("error", () => { thumb.style.display = "none"; });
+  const thumbTrigger = h("div", { class: "upgrade-card-thumb-trigger" }, thumb);
+  attachZoomCard(thumbTrigger, imageSrc, altText);
+  return thumbTrigger;
+}
+
 // Adds the actual zoomable card art to `triggerEl`, which must be the
 // element the card should pop out from — either an always-visible 84px
 // thumbnail (Upgrade Tracker page) or a part-number badge with no
@@ -1098,9 +1114,9 @@ document.addEventListener("click", (e) => {
 // the topbar there. Being a direct child of <body> sidesteps that
 // entirely. Shown/hidden and positioned purely via JS as a result (no
 // CSS :hover needed for it at all).
-function attachZoomCard(triggerEl, partNumber) {
+function attachZoomCard(triggerEl, imageSrc, altText) {
   triggerEl.classList.add("upgrade-zoom-trigger");
-  const img = h("img", { src: partCardImagePath(partNumber), alt: `Part #${partNumber} card`, loading: "lazy" });
+  const img = h("img", { src: imageSrc, alt: altText, loading: "lazy" });
   img.addEventListener("error", () => { img.style.display = "none"; });
   const zoomWrap = h("div", { class: "upgrade-card-zoom-wrap" }, img);
   document.body.appendChild(zoomWrap);
@@ -1230,11 +1246,26 @@ function renderUpgradeTracker(container) {
     // server/db/priority.js) rather than being blocked outright.
     const canPickUpgrades = isSelfOrAdmin(e.driverId);
     const sponsorTd = h("td");
+    const sponsorCell = h("div", { class: "upgrade-cell" });
     if (canPickUpgrades) {
-      sponsorTd.appendChild(selectInput(e.sponsor, ["", ...sponsorNames], (v) => { e.sponsor = v || null; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
+      sponsorCell.appendChild(selectInput(e.sponsor, ["", ...sponsorNames], (v) => { e.sponsor = v || null; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
     } else {
-      sponsorTd.appendChild(document.createTextNode(e.sponsor || "—"));
+      sponsorCell.appendChild(document.createTextNode(e.sponsor || "—"));
     }
+    if (e.sponsor) {
+      // Same hover/tap-to-reveal card art as an upgrade slot (shared
+      // .upgrade-cell-card-wrap/-inner classes, so it opens with the same
+      // row hover/.open state — see the CSS comment on .upgrade-cell-card-wrap).
+      const thumbTrigger = buildCardThumb(sponsorCardImagePath(e.sponsor), `${e.sponsor} sponsor card`);
+      if (thumbTrigger) {
+        const cardInner = h("div", { class: "upgrade-cell-card-inner" },
+          thumbTrigger,
+          h("div", { class: "upgrade-card-label" }, e.sponsor)
+        );
+        sponsorCell.appendChild(h("div", { class: "upgrade-cell-card-wrap" }, cardInner));
+      }
+    }
+    sponsorTd.appendChild(sponsorCell);
     tr.appendChild(sponsorTd);
     tr.appendChild(h("td", { class: "cell-computed" }, fmtMoney(e.budget)));
     // Rolled forward from the prior season's remaining budget + winnings —
@@ -1252,21 +1283,14 @@ function renderUpgradeTracker(container) {
       }
       if (val != null) {
         const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(val));
-        // The visible 84px thumbnail is its own always-in-flow element,
-        // never repositioned — attachZoomCard's overlay (added to the
-        // wrapping trigger div, not the <img> itself, which can't have
-        // children) is a separate, always out-of-flow element on top of
-        // it, so revealing/hiding the zoomed art on hover (or tap) never
-        // shifts this or the label below it.
-        const thumb = h("img", { class: "upgrade-card-thumb", src: partCardImagePath(val), alt: `Part #${val} card`, loading: "lazy" });
-        thumb.addEventListener("error", () => { thumb.style.display = "none"; });
-        const thumbTrigger = h("div", { class: "upgrade-card-thumb-trigger" }, thumb);
-        attachZoomCard(thumbTrigger, val);
-        const cardInner = h("div", { class: "upgrade-cell-card-inner" },
-          thumbTrigger,
-          h("div", { class: "upgrade-card-label" }, `#${val}${u ? " · " + u.type : ""}`)
-        );
-        cell.appendChild(h("div", { class: "upgrade-cell-card-wrap" }, cardInner));
+        const thumbTrigger = buildCardThumb(partCardImagePath(val), `Part #${val} card`);
+        if (thumbTrigger) {
+          const cardInner = h("div", { class: "upgrade-cell-card-inner" },
+            thumbTrigger,
+            h("div", { class: "upgrade-card-label" }, `#${val}${u ? " · " + u.type : ""}`)
+          );
+          cell.appendChild(h("div", { class: "upgrade-cell-card-wrap" }, cardInner));
+        }
       }
       td.appendChild(cell);
       tr.appendChild(td);
@@ -1383,6 +1407,10 @@ const invFilter = { search: "", type: "", tier: "" };
 // open/closed state survives a filter change or an admin edit, both of
 // which call renderInventoryTableInto() and rebuild every row from scratch.
 const invExpanded = new Set();
+// Same idea as invExpanded above, but for the Sponsors table's card-art
+// detail rows — keyed by sponsorId since that's sponsors' stable
+// identifier (see saveSponsor).
+const sponsorInvExpanded = new Set();
 // Current column sort — key is null until a header is clicked, meaning
 // "server order" (by partNumber). Not persisted across page loads.
 const invSort = { key: null, dir: 1 };
@@ -1392,6 +1420,33 @@ const TIER_RANK = { S: 0, A: 1, B: 2, C: 3, D: 4, F: 5 };
 
 function partCardImagePath(partNumber) {
   return `/images/cards/${partNumber}_cropped.png`;
+}
+
+// Unlike upgrade parts (whose card art is filed by partNumber — a stable
+// identifier every part already has), sponsor card art has no such ID to
+// key off, so each file was named by hand from a short, distinctive word
+// in that sponsor's name. Keyed by sponsor name because that's the only
+// identifier every call site already has on hand (an upgradeTracker
+// entry's `sponsor` field is a name string, not the Inventory page's
+// sponsorId — see saveUpgradeTrackerRow). Returns null (not a guessed
+// path) for a sponsor with no mapped art — buildCardThumb skips the
+// card-art wrapper entirely rather than showing a broken image.
+const SPONSOR_CARD_IMAGE_SLUGS = {
+  "Eole Wing Industries": "eole",
+  "Fredo&F": "fredo",
+  "Dramdo": "dramdo",
+  "Lord & CO": "lord",
+  "De Angeli": "de_angli",
+  "E. Mercury Air System": "mercury",
+  "Thunder Valley Aero": "thunder_valley",
+  "Aperault": "aperault",
+  "Moquette": "moquette",
+  "Beewee": "beewee",
+  "Noctie": "noctie",
+};
+function sponsorCardImagePath(sponsorName) {
+  const slug = SPONSOR_CARD_IMAGE_SLUGS[sponsorName];
+  return slug ? `/images/cards/${slug}_cropped.png` : null;
 }
 
 function invSortedRows(rows) {
@@ -1535,10 +1590,16 @@ function renderInventory(container) {
   const panel2 = h("div", { class: "panel" });
   panel2.appendChild(h("h2", {}, "Sponsors"));
   const table2 = h("table");
-  table2.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Type"), h("th", {}, "Count"), h("th", {}, "Funding"))));
+  table2.appendChild(h("thead", {}, h("tr", {}, h("th", { class: "inv-chevron-col" }), h("th", {}, "Name"), h("th", {}, "Type"), h("th", {}, "Count"), h("th", {}, "Funding"))));
   const tbody2 = h("tbody");
   DATA.inventory.sponsors.forEach((s) => {
-    const tr = h("tr");
+    const tr = h("tr", { class: "inv-row" });
+    // Same chevron-column trick as the Upgrade Parts table above: every
+    // other Sponsors column becomes a text/number input for admin, so
+    // without a dedicated non-input cell there'd be no click target left
+    // that isn't itself an editable field.
+    const chevronTd = h("td", { class: "inv-chevron-col" }, h("span", { class: "inv-chevron" }, "▸"));
+    tr.appendChild(chevronTd);
     if (allowed) {
       const tdName = h("td"); tdName.appendChild(textInput(s.name, (v) => { s.name = v; saveSponsor(s.sponsorId, { name: v }); }));
       const tdType = h("td"); tdType.appendChild(textInput(s.type, (v) => { s.type = v; saveSponsor(s.sponsorId, { type: v }); }));
@@ -1552,6 +1613,30 @@ function renderInventory(container) {
       tr.appendChild(h("td", {}, fmtMoney(s.funding)));
     }
     tbody2.appendChild(tr);
+
+    // Same click-to-expand card-art row as the Upgrade Parts table above.
+    const detailInner = h("div", { class: "inv-detail-inner" });
+    const img = h("img", { src: sponsorCardImagePath(s.name), alt: `${s.name} sponsor card`, loading: "lazy" });
+    img.addEventListener("error", () => {
+      detailInner.innerHTML = "";
+      detailInner.appendChild(h("p", { class: "muted" }, "No card image available."));
+    });
+    detailInner.appendChild(img);
+    const detailWrap = h("div", { class: "inv-detail" }, detailInner);
+    const detailTd = h("td", { colspan: "5" }, detailWrap);
+    tbody2.appendChild(h("tr", { class: "inv-detail-row" }, detailTd));
+
+    if (sponsorInvExpanded.has(s.sponsorId)) {
+      tr.classList.add("open");
+      detailWrap.classList.add("open");
+    }
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("input, select, button, a")) return;
+      const open = !sponsorInvExpanded.has(s.sponsorId);
+      if (open) sponsorInvExpanded.add(s.sponsorId); else sponsorInvExpanded.delete(s.sponsorId);
+      tr.classList.toggle("open", open);
+      detailWrap.classList.toggle("open", open);
+    });
   });
   table2.appendChild(tbody2);
   panel2.appendChild(table2);
@@ -2255,7 +2340,7 @@ function buildUpgradesSummary() {
     picked.forEach((partNumber) => {
       const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(partNumber));
       const badge = h("span", { class: "badge" }, `#${partNumber}${u ? " · " + u.type : ""}`);
-      attachZoomCard(badge, partNumber);
+      attachZoomCard(badge, partCardImagePath(partNumber), `Part #${partNumber} card`);
       upgradesCell.appendChild(badge);
     });
     tbody.appendChild(h("tr", {}, h("td", {}, driverBadge(e.driver)), h("td", {}, upgradesCell), h("td", {}, fmtMoney(e.remainingBudget))));
