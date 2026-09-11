@@ -541,8 +541,8 @@ function saveOffseasonRegs() {
   scheduleSave("offseason-regs", () => apiPut("/api/offseason/regulations", { items: DATA.offSeasonBudget.regulations }));
 }
 
-function saveOffseasonWinnings(driverId, winnings) {
-  scheduleSave(`offseason-winnings:${driverId}`, () => apiPut(`/api/offseason/winnings/${driverId}${seasonQuery()}`, { winnings }));
+function saveOffseasonWinnings(position, winnings) {
+  scheduleSave(`offseason-winnings:${position}`, () => apiPut(`/api/offseason/winnings/${position}${seasonQuery()}`, { winnings }));
 }
 
 function saveHofMissedRaceLog() {
@@ -2002,12 +2002,16 @@ function renderOffSeason(container) {
   // Deterministic, one row per current driver, ordered by this season's
   // final standing — unlike the freeform trackers below, every driver
   // always has exactly one row here, so it's unambiguous who gets what.
-  // This is what season creation reads to seed next season's starting
-  // budget (see POST /api/season in server/routes/season.routes.js).
+  // The winnings amount is tied to the position (w.position), not the
+  // driver occupying it — saveOffseasonWinnings saves by position, so if
+  // standings change later, the amount stays with the position and
+  // reactively follows whoever now holds it. This is what season creation
+  // reads to seed next season's starting budget (see POST /api/season in
+  // server/routes/season.routes.js).
   const winPanel = h("div", { class: "panel" });
   winPanel.appendChild(h("h2", {}, "Season-End Winnings"));
   winPanel.appendChild(h("p", { class: "muted panel-note" },
-    "One row per driver, ordered by this season's final standing — feeds next season's starting budget when a new season is created."
+    "One row per driver, ordered by this season's final standing — winnings are tied to the position, so they follow whoever holds it if standings change. Feeds next season's starting budget when a new season is created."
   ));
   const winTable = h("table");
   winTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Driver"), h("th", {}, "Winnings"))));
@@ -2018,7 +2022,7 @@ function renderOffSeason(container) {
     tr.appendChild(h("td", {}, driverBadge(w.driver)));
     const tdWin = h("td");
     if (allowed) {
-      tdWin.appendChild(numberInput(w.winnings, (v) => { w.winnings = v; saveOffseasonWinnings(w.driverId, v); }));
+      tdWin.appendChild(numberInput(w.winnings, (v) => { w.winnings = v; saveOffseasonWinnings(w.position, v); }));
     } else {
       tdWin.appendChild(document.createTextNode(typeof w.winnings === "number" ? fmtMoney(w.winnings) : "—"));
     }

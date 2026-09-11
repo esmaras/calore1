@@ -38,10 +38,15 @@ const keys = {
   hallOfFameSeasonLog: () => ({ PK: "HALLOFFAME#SEASONLOG", SK: "PROFILE" }),
   hallOfFameMissedRaceLog: () => ({ PK: "HALLOFFAME#MISSEDRACELOG", SK: "PROFILE" }),
   offSeasonRegulations: () => ({ PK: "OFFSEASON#REGULATIONS", SK: "PROFILE" }),
-  // One row per driver per season — what that driver won based on their
-  // final standing in `season`. Read by the next season's creation to
-  // seed each driver's starting budget carryover.
-  offSeasonWinnings: (driverId, season) => ({ PK: `OFFSEASONWINNINGS#${driverId}`, SK: `SEASON#${requireSeason(season)}` }),
+  // One row per finishing position per season — what a driver in that
+  // position wins, not what a specific driver wins. Keyed on position
+  // (not driverId) so a mid-season standings correction reassigns the
+  // payout to whoever now holds that position, rather than leaving it
+  // stuck on whoever held it when the amount was first entered. Read by
+  // the next season's creation to seed each driver's starting budget
+  // carryover (see winningsByDriver in assembleData, which resolves
+  // position -> current holder before that read happens).
+  offSeasonWinnings: (position, season) => ({ PK: `OFFSEASONWINNINGS#${position}`, SK: `SEASON#${requireSeason(season)}` }),
   // Tracking record for the migrations runner (see migrations/) — one item
   // per migration file, written the moment it finishes running. Its mere
   // existence means "applied"; the runner skips any migration whose record

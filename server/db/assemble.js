@@ -102,13 +102,17 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
   // this season's final standing (not a freeform admin-typed list), so
   // it's unambiguous who gets what — and so the next season's creation
   // (see POST /api/season in season.routes.js) can read it directly to
-  // seed each driver's starting budget carryover.
-  const winningsByDriverId = Object.fromEntries(
-    bySeason(itemTypes.OFFSEASON_WINNINGS, seasonNumber).map((w) => [w.driverId, w.winnings ?? null])
+  // seed each driver's starting budget carryover. The stored amount is
+  // keyed by position, not driverId (see keys.offSeasonWinnings) — resolved
+  // to "whoever currently holds that position" here, every read, so a
+  // standings correction after the fact reassigns the payout instead of
+  // leaving it stuck on whoever held the position when it was entered.
+  const winningsByPosition = Object.fromEntries(
+    bySeason(itemTypes.OFFSEASON_WINNINGS, seasonNumber).map((w) => [w.position, w.winnings ?? null])
   );
   const winningsByDriver = [...standingsRows]
     .sort((a, b) => a.position - b.position)
-    .map((row) => ({ driverId: row.driverId, driver: row.driver, position: row.position, winnings: winningsByDriverId[row.driverId] ?? null }));
+    .map((row) => ({ driverId: row.driverId, driver: row.driver, position: row.position, winnings: winningsByPosition[row.position] ?? null }));
 
   // ---- upgrade tracker ----
   const legendItem = one(itemTypes.UPGRADETRACKER_LEGEND) || {};
