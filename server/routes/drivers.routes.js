@@ -5,7 +5,7 @@ const { requireSelfOrAdmin } = require("../auth/middleware");
 
 const router = express.Router();
 
-const EDITABLE_FIELDS = ["player", "driver", "teamName", "backstory"];
+const EDITABLE_FIELDS = ["player", "driver", "teamName", "backstory", "numberFont", "numberBgShape", "numberBgColor"];
 
 // A driver may only ever touch their own record — the route is scoped to
 // :driverId and requireSelfOrAdmin checks it, so this isn't just a UI hint.
@@ -82,6 +82,88 @@ router.put("/:driverId/car-color", requireSelfOrAdmin("driverId"), async (req, r
   }
 
   res.json({ ...driver, carColor });
+});
+
+// Same atomic-claim shape as /car-color above, with one difference: unlike
+// car color (which always holds some value), a driver number has a real
+// "unset" state — the whole feature is opt-in, defaulting to the plain
+// color dot until a driver picks a number (see driverIndicator in
+// public/app.js). Sending an empty/blank driverNumber clears it and
+// releases the claim instead of attempting a new one.
+router.put("/:driverId/driver-number", requireSelfOrAdmin("driverId"), async (req, res) => {
+  const { driverId } = req.params;
+  const raw = req.body?.driverNumber;
+  const trimmed = raw == null ? "" : String(raw).trim();
+
+  const driver = await repo.getItem(keys.driver(driverId));
+  if (!driver) return res.status(404).json({ error: "No such driver" });
+
+  if (trimmed === "") {
+    if (!driver.driverNumber) return res.json(driver); // already unset, no-op
+    await repo.transactWrite([
+      {
+        Delete: {
+          Key: keys.driverNumberClaim(driver.driverNumber),
+          ConditionExpression: "driverId = :self",
+          ExpressionAttributeValues: { ":self": driverId },
+        },
+      },
+      {
+        Update: {
+          Key: keys.driver(driverId),
+          UpdateExpression: "SET #n = :n",
+          ExpressionAttributeNames: { "#n": "driverNumber" },
+          ExpressionAttributeValues: { ":n": null },
+        },
+      },
+    ]);
+    return res.json({ ...driver, driverNumber: null });
+  }
+
+  if (!/^[0-9]{1,2}$/.test(trimmed)) {
+    return res.status(400).json({ error: "Driver number must be 1-2 digits." });
+  }
+
+  if (driver.driverNumber === trimmed) {
+    return res.json(driver); // no-op, already this number
+  }
+
+  const transactItems = [
+    {
+      Put: {
+        Item: { ...keys.driverNumberClaim(trimmed), itemType: itemTypes.DRIVERNUMBERCLAIM, driverId },
+        ConditionExpression: "attribute_not_exists(PK)",
+      },
+    },
+    {
+      Update: {
+        Key: keys.driver(driverId),
+        UpdateExpression: "SET #n = :n",
+        ExpressionAttributeNames: { "#n": "driverNumber" },
+        ExpressionAttributeValues: { ":n": trimmed },
+      },
+    },
+  ];
+  if (driver.driverNumber) {
+    transactItems.unshift({
+      Delete: {
+        Key: keys.driverNumberClaim(driver.driverNumber),
+        ConditionExpression: "driverId = :self",
+        ExpressionAttributeValues: { ":self": driverId },
+      },
+    });
+  }
+
+  try {
+    await repo.transactWrite(transactItems);
+  } catch (err) {
+    if (err.name === "TransactionCanceledException") {
+      return res.status(409).json({ error: `"${trimmed}" is already taken by another driver.` });
+    }
+    throw err;
+  }
+
+  res.json({ ...driver, driverNumber: trimmed });
 });
 
 module.exports = router;

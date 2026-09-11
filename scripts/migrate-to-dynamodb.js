@@ -173,8 +173,14 @@ async function main() {
 
   // ---- blob docs ----
   puts.push({ ...keys.lore(), itemType: itemTypes.LORE, ...data.lore });
-  puts.push({ ...keys.techRegs(), itemType: itemTypes.TECHREGS, items: data.technicalRegulations });
-  puts.push({ ...keys.ficcNotes(SEASON_NUMBER), itemType: itemTypes.FICC_NOTES, season: SEASON_NUMBER, notes: data.ficcBacklog.notes });
+  // TECHREGS is season-scoped (migrations/001) — data.json predates that,
+  // so it's seeded straight into season 1 rather than the old global key.
+  puts.push({ ...keys.techRegs(SEASON_NUMBER), itemType: itemTypes.TECHREGS, season: SEASON_NUMBER, items: data.technicalRegulations });
+  // FICC_NOTES.notes is a single string (migrations/004) — data.json
+  // predates that too, storing one entry per text box; joined the same
+  // way the migration joined existing array data.
+  const ficcNotes = Array.isArray(data.ficcBacklog.notes) ? data.ficcBacklog.notes.join("\n\n") : data.ficcBacklog.notes;
+  puts.push({ ...keys.ficcNotes(SEASON_NUMBER), itemType: itemTypes.FICC_NOTES, season: SEASON_NUMBER, notes: ficcNotes });
   puts.push({
     ...keys.upgradeTrackerLegend(),
     itemType: itemTypes.UPGRADETRACKER_LEGEND,
@@ -184,8 +190,10 @@ async function main() {
   puts.push({ ...keys.hallOfFameSeasonLog(), itemType: itemTypes.HALLOFFAME_SEASONLOG, items: data.hallOfFame.seasonLog });
   puts.push({ ...keys.hallOfFameMissedRaceLog(), itemType: itemTypes.HALLOFFAME_MISSEDRACELOG, items: data.hallOfFame.missedRaceLog });
   puts.push({ ...keys.offSeasonRegulations(), itemType: itemTypes.OFFSEASON_REGULATIONS, items: data.offSeasonBudget.regulations });
-  puts.push({ ...keys.offSeasonDriverTracker(), itemType: itemTypes.OFFSEASON_DRIVERTRACKER, items: data.offSeasonBudget.driverTracker });
-  puts.push({ ...keys.offSeasonMidSeasonWindow(), itemType: itemTypes.OFFSEASON_MIDSEASONWINDOW, items: data.offSeasonBudget.midSeasonWindow });
+  // data.offSeasonBudget.driverTracker/midSeasonWindow are NOT seeded — the
+  // Driver Off-Season Tracker and Mid-Season Upgrade Window panels (and
+  // their keys/itemTypes) were removed as unused (migrations/003); seeding
+  // them would just recreate the orphaned items that migration deletes.
 
   // ---- FICC proposals: first N (driver count) rows are driver-owned, rest freeform ----
   const driverCount = data.drivers.length;

@@ -16,6 +16,13 @@ const keys = {
   driver: (driverId) => ({ PK: `DRIVER#${driverId}`, SK: "PROFILE" }),
   carColorClaim: (colorName) => ({ PK: `CARCOLORCLAIM#${colorName}`, SK: "CLAIM" }),
   carColorConfig: (colorName) => ({ PK: `CONFIG#CARCOLOR#${colorName}`, SK: "PROFILE" }),
+  // Keyed on the trimmed number string (digits only — see the
+  // /driver-number route's validation) so "44" and "44 " can't both be
+  // claimed. "07" and "7" are still distinct claims (no numeric
+  // normalization), matching how a real two-digit racing number can carry
+  // a meaningful leading zero. No config/allow-list key like carColorConfig
+  // — there's no admin-curated pool of valid numbers to check against.
+  driverNumberClaim: (driverNumber) => ({ PK: `DRIVERNUMBERCLAIM#${driverNumber}`, SK: "CLAIM" }),
   upgradePart: (partNumber) => ({ PK: `UPGRADEPART#${partNumber}`, SK: "PROFILE" }),
   sponsor: (sponsorSlug) => ({ PK: `SPONSOR#${sponsorSlug}`, SK: "PROFILE" }),
   standings: (driverId, season) => ({ PK: `STANDINGS#${driverId}`, SK: `SEASON#${requireSeason(season)}` }),
@@ -64,6 +71,7 @@ const itemTypes = {
   DRIVER: "DRIVER",
   CARCOLORCLAIM: "CARCOLORCLAIM",
   CARCOLORCONFIG: "CARCOLORCONFIG",
+  DRIVERNUMBERCLAIM: "DRIVERNUMBERCLAIM",
   UPGRADEPART: "UPGRADEPART",
   SPONSOR: "SPONSOR",
   STANDINGS: "STANDINGS",

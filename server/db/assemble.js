@@ -209,6 +209,10 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
       carColor: d.carColor,
       backstory: d.backstory,
       username: usernameByDriverId[d.driverId] || null,
+      driverNumber: d.driverNumber ?? null,
+      numberFont: d.numberFont ?? null,
+      numberBgShape: d.numberBgShape ?? null,
+      numberBgColor: d.numberBgColor ?? null,
     })),
     season: {
       seasonNumber: seasonItem.seasonNumber,

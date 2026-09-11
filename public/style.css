@@ -322,10 +322,20 @@ tr.upgrade-row.open .upgrade-row-toggle span {
   display: inline-block;
   margin-top: 8px;
 }
+/* Fixed height (not height: auto) + object-fit: cover — the source card
+   art doesn't all share exactly the same aspect ratio, so height: auto
+   let each thumbnail render at a slightly different height. Tops stayed
+   aligned (each cell's card sits right after its own same-height select),
+   but the varying bottoms staggered the label directly below each card
+   and made a row of several cards (sponsor + upgrade picks) look uneven.
+   A fixed box every image is cropped to fit keeps every card in a row
+   exactly the same size, so the whole row — and the labels below it —
+   lines up regardless of the source art's proportions. */
 .upgrade-card-thumb {
   display: block;
   width: 84px;
-  height: auto;
+  height: 132px;
+  object-fit: cover;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-panel-2);
@@ -570,6 +580,48 @@ tr.upgrade-row.open .upgrade-row-toggle span {
   vertical-align: middle;
   border: 1px solid rgba(255,255,255,0.3);
 }
+
+/* Opt-in replacement for .color-swatch when a driver has set a
+   driverNumber — see driverIndicator in app.js, the one place that decides
+   between this and the plain dot above. A bold, flat, solid-colored
+   numeral — numberBadge() (app.js) sets `color` directly to either the
+   driver's car color or white (see NUMBER_BG_COLORS/"invert"), no gradient
+   or pattern involved. text-shadow just keeps the glyph's edge visible
+   against the app's dark theme. */
+.number-glyph {
+  display: inline-block;
+  font-weight: 800;
+  font-size: 1.65rem;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.6), 0 0 1px rgba(0,0,0,0.5);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* Only used when NUMBER_BG_SHAPES is "circle"/"square" (see numberBadge
+   in app.js) — a backdrop chip sitting behind the glyph, sized purely off
+   this wrapper's own padding so it scales automatically with 1 vs. 2
+   digits instead of a fixed pixel size. "None" skips this wrapper
+   entirely and renders .number-glyph directly, no backdrop at all. */
+.number-glyph-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1em 0.45em;
+  vertical-align: middle;
+}
+.number-glyph-backdrop {
+  position: absolute;
+  inset: 0;
+  /* Faint border regardless of fill color — without it, a "Team color"
+     backdrop on a dark car color (e.g. Black) can nearly blend into the
+     app's own dark theme with nothing marking its edge. */
+  border: 1px solid rgba(255,255,255,0.25);
+}
+.number-glyph-backdrop--circle { border-radius: 50%; }
+.number-glyph-backdrop--square { border-radius: 8px; }
 
 .kv-grid {
   display: grid;

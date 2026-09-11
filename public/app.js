@@ -27,6 +27,61 @@ const CAR_COLORS = {
   White: "#f5f5f5",
 };
 
+// Curated font list for the Driver Number Badge (My Account page) — bold
+// block/display faces suited to racing numerals, not script/serif. Fixed
+// list, no admin management (see the Google Fonts <link> in index.html).
+// Each `family` embeds its own fallback stack so a slow/blocked font load
+// never leaves the badge illegible.
+const NUMBER_BADGE_FONTS = [
+  { id: "orbitron", label: "Orbitron", family: '"Orbitron", "Courier New", monospace' },
+  { id: "racing-sans-one", label: "Racing Sans One", family: '"Racing Sans One", "Arial Narrow", sans-serif' },
+  { id: "bebas-neue", label: "Bebas Neue", family: '"Bebas Neue", "Arial Narrow", sans-serif' },
+  { id: "anton", label: "Anton", family: '"Anton", "Arial Black", sans-serif' },
+  { id: "titillium-web", label: "Titillium Web", family: '"Titillium Web", Arial, sans-serif' },
+];
+
+// Lightens (positive percent) or darkens (negative) a #rrggbb hex color —
+// used only to brighten the car color for numberBadge()'s glow effect.
+function shadeColor(hex, percent) {
+  const n = parseInt(hex.slice(1), 16);
+  const amt = Math.round(2.55 * percent);
+  const r = Math.min(255, Math.max(0, (n >> 16) + amt));
+  const g = Math.min(255, Math.max(0, ((n >> 8) & 0xff) + amt));
+  const b = Math.min(255, Math.max(0, (n & 0xff) + amt));
+  return `#${(0x1000000 + r * 0x10000 + g * 0x100 + b).toString(16).slice(1)}`;
+}
+
+// Deliberately just two simple, independent choices (an earlier round of
+// this feature tried gradient/pattern fills plus a 6-way contrast picker —
+// too many options, and busy patterns buried the car color instead of
+// showing it plainly). The numeral itself is now always a flat, solid
+// color — bold and unambiguous — never a gradient or texture. "Glow" is
+// the old boxless default ("None" — no backdrop element, still supported
+// via resolveBgShape below for anyone who already saved that value);
+// "Outline" is a crisp solid stroke around the glyph, distinct from
+// Glow's soft blur. All four apply NUMBER_BG_COLORS the same way (see
+// numberBadge): whichever of white/team-color the background element
+// itself is (glow color, outline color, or backdrop chip fill), the
+// numeral is always the other one.
+const NUMBER_BG_SHAPES = [
+  { id: "glow", label: "Glow" },
+  { id: "outline", label: "Outline" },
+  { id: "circle", label: "Circle" },
+  { id: "square", label: "Square" },
+];
+const NUMBER_BG_COLORS = [
+  { id: "white", label: "White" },
+  { id: "team", label: "Team color" },
+];
+
+// Maps a stored numberBgShape to a currently-valid NUMBER_BG_SHAPES id —
+// "none" (or unset) becomes "glow", its closest equivalent (no backdrop
+// element) from before "None" was removed as an option.
+function resolveBgShape(id) {
+  if (!id || id === "none") return "glow";
+  return id;
+}
+
 // ---------- tiny DOM helper ----------
 function h(tag, props = {}, ...children) {
   const el = document.createElement(tag);
@@ -193,29 +248,102 @@ function colorSwatch(color) {
   return dot;
 }
 
-// Plain-text driver name with a dot in that driver's car color — used
-// wherever the name is derived/read-only (Standings, Upgrade Tracker, the
-// fixed FICC proposal rows).
+// The "badge" half of driverIndicator below — only ever called once a
+// driver has set a driverNumber. Falls back to the first curated font/
+// style if the driver's saved id no longer matches one (e.g. a curated
+// list entry got renamed/removed).
+function numberBadge(driver) {
+  const font = NUMBER_BADGE_FONTS.find((f) => f.id === driver.numberFont) || NUMBER_BADGE_FONTS[0];
+  const shape = resolveBgShape(driver.numberBgShape);
+  const bgColorChoice = driver.numberBgColor || NUMBER_BG_COLORS[0].id;
+  const carColor = carColorMap()[driver.carColor] || "#888";
+
+  // "White" background: the background element (glow/outline/backdrop
+  // chip, whichever `shape` is) is white, and the numeral is the bold car
+  // color — the plain default. "Team color" inverts it: the background
+  // element becomes the car color, and the numeral becomes white instead,
+  // so it always reads clearly against whichever color it's paired with.
+  const inverted = bgColorChoice === "team";
+  const numberColor = inverted ? "#fff" : carColor;
+  const bgColor = inverted ? carColor : "#fff";
+
+  const glyph = h("span", { class: "number-glyph" }, driver.driverNumber);
+  glyph.style.margin = "0";
+  glyph.style.flex = "none";
+  glyph.style.fontFamily = font.family;
+  glyph.style.color = numberColor;
+
+  if (shape === "glow") {
+    // No backdrop — a soft glow in bgColor both keeps a boxless numeral
+    // legible against the app's dark theme (crucially, even when the
+    // numeral itself is a very dark car color like "Black") and is what
+    // actually makes the color pop, the same layering a neon-sign glow
+    // uses. Brightened for the "team" case so a dark car color's glow
+    // doesn't look muted either; "white" is already as bright as it gets.
+    const glowCore = inverted ? shadeColor(bgColor, 30) : bgColor;
+    glyph.style.filter = `drop-shadow(0 0 2px ${glowCore}) drop-shadow(0 0 6px ${bgColor})`;
+    return glyph;
+  }
+
+  if (shape === "outline") {
+    // A crisp solid stroke around the glyph — no blur, unlike Glow — so
+    // even a numeral the same brightness as the app's background stays
+    // clearly outlined. White (the non-inverted case) reads thicker than
+    // a car-color stroke at the same width — white has no hue to "blend"
+    // into the fill's edge the way a car color can — so it gets an even
+    // thinner stroke than the team-color case.
+    glyph.style.webkitTextStroke = `${inverted ? "2px" : "0.6px"} ${bgColor}`;
+    return glyph;
+  }
+
+  // Circle/square — a solid backdrop chip behind the glyph, sized off
+  // .number-glyph-wrap's own padding (see style.css) so it automatically
+  // scales with 1 vs. 2 digits instead of a fixed pixel size.
+  glyph.style.position = "relative";
+  glyph.style.zIndex = "1";
+  const backdrop = h("span", { class: `number-glyph-backdrop number-glyph-backdrop--${shape}` });
+  backdrop.style.background = bgColor;
+  const wrap = h("span", { class: "number-glyph-wrap" }, backdrop, glyph);
+  wrap.style.margin = "0";
+  wrap.style.flex = "none";
+  return wrap;
+}
+
+// Single place the "dot vs. number badge" decision is made — driverBadge
+// and driverSelectField both call this so they can never drift out of
+// sync. Falls back to the plain color dot whenever driverNumber is unset,
+// so nobody who hasn't opted into the badge feature sees any change.
+function driverIndicator(driver) {
+  if (driver && driver.driverNumber) return numberBadge(driver);
+  return colorSwatch(driver ? carColorMap()[driver.carColor] || null : null);
+}
+
+// Plain-text driver name with an indicator (color dot, or a number badge
+// if that driver has set one) — used wherever the name is derived/
+// read-only (Standings, Upgrade Tracker, the fixed FICC proposal rows).
 function driverBadge(name) {
   const span = h("span", { style: "display:inline-flex; align-items:center; gap:6px;" });
-  span.appendChild(colorSwatch(driverColorFor(name)));
+  const d = DATA.drivers.find((d) => d.driver === name);
+  span.appendChild(driverIndicator(d));
   span.appendChild(document.createTextNode(name || ""));
   return span;
 }
 
-// Editable driver <select> with the same color dot, kept in sync as the
-// selection changes — used in the freeform tracker tables.
+// Editable driver <select> with the same indicator, kept in sync as the
+// selection changes — used in the freeform tracker tables. The indicator
+// element itself is swapped (not just re-styled) since a color dot and a
+// number badge are different shapes, not just different colors of the
+// same element.
 function driverSelectField(value, onChange) {
   const wrap = h("div", { style: "display:flex; align-items:center; gap:6px;" });
-  const dot = colorSwatch(driverColorFor(value));
+  let indicator = driverIndicator(DATA.drivers.find((d) => d.driver === value));
+  wrap.appendChild(indicator);
   const sel = selectInput(value, ["", ...DATA.drivers.map((d) => d.driver)], (v) => {
-    const color = driverColorFor(v);
-    dot.style.background = color || "transparent";
-    dot.style.borderColor = color ? "rgba(255,255,255,0.3)" : "var(--border)";
-    dot.style.borderStyle = color ? "solid" : "dashed";
+    const next = driverIndicator(DATA.drivers.find((d) => d.driver === v));
+    wrap.replaceChild(next, indicator);
+    indicator = next;
     onChange(v);
   });
-  wrap.appendChild(dot);
   wrap.appendChild(sel);
   return wrap;
 }
@@ -832,15 +960,20 @@ function renderDrivers(container) {
     const card = h("div", { class: "driver-card" });
     card.style.setProperty("--car-color", carColorMap()[d.carColor] || "#888");
 
+    // driverIndicator (dot, or the driver's own number if they've set one —
+    // see numberBadge) alongside the team name, same as everywhere else a
+    // driver's identity shows up (Standings, Upgrade Tracker, etc.).
+    const header = h("div", { style: "display:flex; align-items:center; gap:8px; margin-bottom:8px;" });
+    header.appendChild(driverIndicator(d));
     if (allowed) {
       const teamInput = textInput(d.teamName, (v) => { d.teamName = v; saveDriverFields(d.driverId, { teamName: v }); });
       teamInput.style.fontWeight = "700";
       teamInput.style.fontSize = "1.05rem";
-      teamInput.style.marginBottom = "8px";
-      card.appendChild(teamInput);
+      header.appendChild(teamInput);
     } else {
-      card.appendChild(h("div", { style: "font-weight:700; font-size:1.05rem; margin-bottom:8px;" }, d.teamName));
+      header.appendChild(h("div", { style: "font-weight:700; font-size:1.05rem;" }, d.teamName));
     }
+    card.appendChild(header);
 
     const row = h("div", { style: "display:flex; gap:8px; margin-bottom:8px;" });
     if (allowed) {
@@ -2170,13 +2303,14 @@ function renderAuditLog(container) {
 // Every logged-in user gets this tab — no permission gate beyond being
 // authenticated, since it only ever acts on the caller's own account.
 function renderProfile(container) {
+  const myDriver = CURRENT_USER.driverId ? DATA.drivers.find((d) => d.driverId === CURRENT_USER.driverId) : null;
+
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "Account"));
   const kv = h("div", { class: "kv-grid" });
   kv.appendChild(h("label", {}, "Role"));
   kv.appendChild(h("div", {}, CURRENT_USER.role));
   if (CURRENT_USER.driverId) {
-    const myDriver = DATA.drivers.find((d) => d.driverId === CURRENT_USER.driverId);
     kv.appendChild(h("label", {}, "Driver"));
     kv.appendChild(h("div", {}, myDriver ? myDriver.driver : CURRENT_USER.driverId));
   }
@@ -2211,6 +2345,96 @@ function renderProfile(container) {
   panel2.appendChild(usernameMsgEl);
   panel2.appendChild(usernameBtn);
   container.appendChild(panel2);
+
+  // Opt-in cosmetic feature — only makes sense for a logged-in user who's
+  // actually linked to a driver record (see driverIndicator/numberBadge).
+  // Placed right below Username since it's the other thing most drivers
+  // will actually come to this page to change.
+  if (myDriver) {
+    const panel2b = h("div", { class: "panel" });
+    panel2b.appendChild(h("h2", {}, "Driver Number Badge"));
+    panel2b.appendChild(h("p", { class: "muted panel-note" },
+      "Set a number to replace your color dot everywhere with a custom badge. Leave it blank to keep the plain color dot."
+    ));
+
+    const previewWrap = h("div", { style: "display:flex; align-items:center; gap:10px; margin-bottom:14px;" });
+    let preview = driverIndicator(myDriver);
+    previewWrap.appendChild(preview);
+    previewWrap.appendChild(h("span", { class: "muted" }, myDriver.driver));
+    panel2b.appendChild(previewWrap);
+
+    const refreshPreview = () => {
+      const next = driverIndicator(myDriver);
+      previewWrap.replaceChild(next, preview);
+      preview = next;
+    };
+
+    // driverNumber needs its own direct save (not the debounced
+    // saveDriverFields path below) since a 409 conflict needs custom
+    // handling — same shape as the Drivers tab's car-color picker. Font/
+    // style still save the moment they change (via saveDriverFields), but
+    // the button — the one action that can fail and needs a result to
+    // read — sits below all three fields, not sandwiched between them.
+    const numberInput = h("input", { type: "text", maxlength: "2" });
+    numberInput.value = myDriver.driverNumber || "";
+    panel2b.appendChild(labeledField("Driver number (1-2 digits, leave blank for none)", numberInput));
+
+    const fontSelect = selectInput(myDriver.numberFont || NUMBER_BADGE_FONTS[0].id,
+      NUMBER_BADGE_FONTS.map((f) => ({ value: f.id, label: f.label })),
+      (v) => { myDriver.numberFont = v; refreshPreview(); saveDriverFields(myDriver.driverId, { numberFont: v }); });
+    panel2b.appendChild(labeledField("Font", fontSelect));
+
+    const shapeSelect = selectInput(resolveBgShape(myDriver.numberBgShape),
+      NUMBER_BG_SHAPES.map((s) => ({ value: s.id, label: s.label })),
+      (v) => { myDriver.numberBgShape = v; refreshPreview(); saveDriverFields(myDriver.driverId, { numberBgShape: v }); });
+    panel2b.appendChild(labeledField("Background", shapeSelect));
+
+    // "White" keeps the number itself as the bold car color (the default);
+    // "Team color" inverts it — background becomes the car color, number
+    // becomes white — see numberBadge().
+    const bgColorSelect = selectInput(myDriver.numberBgColor || NUMBER_BG_COLORS[0].id,
+      NUMBER_BG_COLORS.map((c) => ({ value: c.id, label: c.label })),
+      (v) => { myDriver.numberBgColor = v; refreshPreview(); saveDriverFields(myDriver.driverId, { numberBgColor: v }); });
+    panel2b.appendChild(labeledField("Background color", bgColorSelect));
+
+    const numberMsgEl = h("div", { class: "auth-error" });
+    const numberBtn = h("button", { class: "btn primary" }, "Save number");
+    numberBtn.addEventListener("click", async () => {
+      numberMsgEl.style.color = "";
+      numberMsgEl.textContent = "";
+      const v = numberInput.value.trim();
+      numberBtn.disabled = true;
+      try {
+        const body = await apiPut(`/api/drivers/${myDriver.driverId}/driver-number`, { driverNumber: v });
+        myDriver.driverNumber = body.driverNumber;
+        myDriver.numberConflict = null;
+        numberInput.value = myDriver.driverNumber || "";
+        refreshPreview();
+        numberMsgEl.style.color = "var(--good)";
+        numberMsgEl.textContent = v ? "Number saved." : "Cleared — showing your color dot again.";
+      } catch (err) {
+        numberInput.value = myDriver.driverNumber || "";
+        const holder = err.status === 409
+          ? DATA.drivers.find((x) => x !== myDriver && x.driverNumber === v)?.driver
+          : null;
+        myDriver.numberConflict = { attempted: v, holder, message: err.message };
+        numberMsgEl.textContent = err.message;
+      }
+      numberBtn.disabled = false;
+    });
+    panel2b.appendChild(numberBtn);
+    panel2b.appendChild(numberMsgEl);
+    if (myDriver.numberConflict) {
+      panel2b.appendChild(
+        h("div", { class: "color-conflict-note" },
+          h("span", { class: "compliance-icon" }, "!"),
+          ` Tried to set your number to "${myDriver.numberConflict.attempted}"${myDriver.numberConflict.holder ? `, but it's already used by ${myDriver.numberConflict.holder}` : ""} — try a different number.`
+        )
+      );
+    }
+
+    container.appendChild(panel2b);
+  }
 
   const panel3 = h("div", { class: "panel" });
   panel3.appendChild(h("h2", {}, "Change Password"));
