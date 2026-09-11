@@ -1,6 +1,6 @@
 const { itemTypes } = require("./keys");
 const { buildStandingsRowsForSeason } = require("./ranking");
-const { computeCompliance } = require("./priority");
+const { computeCompliance, computeSponsorCompliance } = require("./priority");
 const { buildVotingView, championDriverId } = require("./voting");
 
 function strip(item) {
@@ -134,12 +134,16 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
   // A driver's row is "out of compliance" when a higher-priority driver
   // (see server/db/priority.js — priority comes from the previous season's
   // final standings) has since claimed a part this driver is also holding,
-  // pushing total claims for that part past its countAvailable. This is
-  // never stored — recomputed fresh every read, same as budget above —
-  // so it can flip on its own as other drivers make their picks.
+  // pushing total claims for that part past its countAvailable, or has
+  // since claimed the same sponsor (which only ever has room for one —
+  // see computeSponsorCompliance, whose priority order is deliberately the
+  // reverse of the parts one above). Neither is ever stored — recomputed
+  // fresh every read, same as budget above — so a row can flip on its own
+  // as other drivers make their picks.
   const complianceIssuesByDriver = computeCompliance(items, seasonNumber, driverItems, upgradeEntries, upgradeParts);
+  const sponsorIssuesByDriver = computeSponsorCompliance(items, seasonNumber, driverItems, upgradeEntries);
   for (const entry of upgradeEntries) {
-    const issues = complianceIssuesByDriver.get(entry.driverId) || [];
+    const issues = [...(complianceIssuesByDriver.get(entry.driverId) || []), ...(sponsorIssuesByDriver.get(entry.driverId) || [])];
     entry.outOfCompliance = issues.length > 0;
     entry.complianceIssues = issues;
   }

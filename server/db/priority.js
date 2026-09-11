@@ -18,7 +18,13 @@ const { buildStandingsRowsForSeason } = require("./ranking");
 // bottom — i.e. top priority — with no special-casing needed. With
 // nothing to base priority on at all, everyone ties and roster order
 // (DRIVER.order) breaks it.
-function computePriorityOrder(items, seasonNumber, driverItems) {
+// `reversed` flips who picks first: false (the default, used for upgrade
+// parts) gives worse-standing drivers first pick, same as a fantasy-league
+// draft. true (used for sponsors — see computeSponsorCompliance) gives
+// first place first pick instead — the opposite fairness call, since a
+// sponsor is closer to a reward for winning than a handicap-balancing
+// mechanic.
+function computePriorityOrder(items, seasonNumber, driverItems, { reversed = false } = {}) {
   const currentSeasonHasResults = items.some(
     (i) => i.itemType === itemTypes.STANDINGS && i.season === seasonNumber && (i.races || []).some((r) => r != null)
   );
@@ -44,7 +50,7 @@ function computePriorityOrder(items, seasonNumber, driverItems) {
   const ordered = [...driverItems].sort((a, b) => {
     const posA = positionById[a.driverId] ?? 0;
     const posB = positionById[b.driverId] ?? 0;
-    if (posA !== posB) return posB - posA; // bigger (worse) position picks first
+    if (posA !== posB) return reversed ? posA - posB : posB - posA; // bigger (worse) position picks first, unless reversed
     return (rosterOrderById[a.driverId] ?? 0) - (rosterOrderById[b.driverId] ?? 0);
   });
 
@@ -93,4 +99,33 @@ function computeCompliance(items, seasonNumber, driverItems, upgradeEntries, upg
   return issuesByDriver;
 }
 
-module.exports = { computePriorityOrder, rankClaimsByPriority, computeCompliance };
+// A sponsor has an implicit capacity of exactly 1 — no two drivers may
+// hold the same one — ranked by priority the same way an oversubscribed
+// upgrade part is, except reversed (see computePriorityOrder): first
+// place gets first pick of sponsors, since this is closer to a reward for
+// winning than a handicap-balancing mechanic. Same "never blocks the
+// save, just flags it" house style as computeCompliance above — a driver
+// picking a sponsor someone with better priority already holds saves
+// fine and shows up non-compliant until one of them changes their pick.
+function computeSponsorCompliance(items, seasonNumber, driverItems, upgradeEntries) {
+  const priorityRank = computePriorityOrder(items, seasonNumber, driverItems, { reversed: true });
+
+  const claimsBySponsor = {};
+  for (const entry of upgradeEntries) {
+    if (!entry.sponsor) continue;
+    (claimsBySponsor[entry.sponsor] ||= []).push({ driverId: entry.driverId });
+  }
+
+  const issuesByDriver = new Map();
+  for (const [sponsor, claims] of Object.entries(claimsBySponsor)) {
+    rankClaimsByPriority(claims, priorityRank).forEach((claim, idx) => {
+      if (idx < 1) return; // one exclusive holder — everyone else conflicts
+      const list = issuesByDriver.get(claim.driverId) || [];
+      list.push({ sponsor, higherPriorityCount: idx });
+      issuesByDriver.set(claim.driverId, list);
+    });
+  }
+  return issuesByDriver;
+}
+
+module.exports = { computePriorityOrder, rankClaimsByPriority, computeCompliance, computeSponsorCompliance };

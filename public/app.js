@@ -1182,7 +1182,7 @@ function renderUpgradeTracker(container) {
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "Upgrade Tracker — Current Season"));
   if (DATA.upgradeTracker.rule) panel.appendChild(h("p", { class: "muted panel-note" }, DATA.upgradeTracker.rule));
-  if (!admin) panel.appendChild(h("p", { class: "muted panel-note" }, "Sponsor and modification are managed by the league admin. Drivers can select their own upgrade parts below."));
+  if (!admin) panel.appendChild(h("p", { class: "muted panel-note" }, "Modification is managed by the league admin. Drivers can select their own sponsor and upgrade parts below."));
   const wrap = h("div", { class: "table-scroll" });
   const table = h("table");
   const headRow = h("tr", {}, h("th", { class: "upgrade-row-toggle-col" }), h("th", {}, "Driver"), h("th", {}, "Sponsor"), h("th", {}, "Budget"), h("th", {}, "Carryover"));
@@ -1222,8 +1222,15 @@ function renderUpgradeTracker(container) {
     });
     tr.appendChild(h("td", { class: "upgrade-row-toggle-col" }, toggleBtn));
     tr.appendChild(h("td", {}, driverBadge(e.driver)));
+    // A driver can pick their own sponsor and upgrade parts (admin can pick
+    // anyone's); modification stays admin-only below. No two drivers can
+    // hold the same sponsor — like an oversubscribed upgrade part, a
+    // conflicting pick still saves and shows up as the same "!" row flag
+    // (see e.complianceIssues, computeSponsorCompliance in
+    // server/db/priority.js) rather than being blocked outright.
+    const canPickUpgrades = isSelfOrAdmin(e.driverId);
     const sponsorTd = h("td");
-    if (admin) {
+    if (canPickUpgrades) {
       sponsorTd.appendChild(selectInput(e.sponsor, ["", ...sponsorNames], (v) => { e.sponsor = v || null; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
     } else {
       sponsorTd.appendChild(document.createTextNode(e.sponsor || "—"));
@@ -1234,9 +1241,6 @@ function renderUpgradeTracker(container) {
     // computed, not editable by anyone (see computeCarryoverByDriver in
     // server/db/assemble.js).
     tr.appendChild(h("td", { class: "cell-computed" }, fmtMoney(e.carryover)));
-    // A driver can pick their own upgrade parts (admin can pick anyone's);
-    // sponsor/modification stay admin-only above and below.
-    const canPickUpgrades = isSelfOrAdmin(e.driverId);
     e.upgrades.forEach((val, i) => {
       const td = h("td");
       const cell = h("div", { class: "upgrade-cell" });
@@ -1286,7 +1290,9 @@ function renderUpgradeTracker(container) {
     // regardless of which check caught it.
     if (e.outOfCompliance) {
       const message = e.complianceIssues
-        .map((issue) => `Part #${issue.partNumber} (${issue.partType}) is oversubscribed — ${issue.higherPriorityCount} higher-priority driver(s) also selected it.`)
+        .map((issue) => issue.sponsor != null
+          ? `Sponsor "${issue.sponsor}" is oversubscribed — ${issue.higherPriorityCount} higher-priority driver(s) also claimed it.`
+          : `Part #${issue.partNumber} (${issue.partType}) is oversubscribed — ${issue.higherPriorityCount} higher-priority driver(s) also selected it.`)
         .join(" ");
       const detailTd = h("td", { colspan: String(7 + MAX_UPGRADE_SLOTS) }, h("span", { class: "compliance-icon" }, "!"), " " + message);
       tbody.appendChild(h("tr", { class: "compliance-detail-row" }, detailTd));
