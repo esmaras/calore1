@@ -1211,13 +1211,26 @@ function closeAllZoomWraps(except) {
   });
 }
 // Tapping/clicking anywhere that isn't a zoom trigger closes whatever's
-// open. Tapping a trigger itself is handled by attachZoomCard below,
-// which runs first (pointerup fires, then click bubbles here) and closes
-// via its own toggle if the trigger's already open — so this only ever
-// needs to handle "somewhere else entirely" and never fights that toggle.
+// open. Tapping a trigger itself is handled by attachZoomCard below (via
+// its own pointerup, which runs before this and closes via its own toggle
+// if the trigger's already open) — so this only ever needs to handle
+// "somewhere else entirely" and never fights that toggle.
+//
+// Capture phase, not bubble: while a card is zoomed, a dismiss-tap should
+// ONLY dismiss it — not also activate whatever it happened to land on
+// (a row's toggle button, a select, another tab). Capture runs before the
+// target's own click handler, so stopping propagation here (when a zoom
+// was actually open) swallows the click before it reaches that handler at
+// all, rather than closing the zoom and letting the click through anyway.
 document.addEventListener("click", (e) => {
-  if (!e.target.closest(".upgrade-zoom-trigger")) closeAllZoomWraps(null);
-});
+  if (e.target.closest(".upgrade-zoom-trigger")) return;
+  const hadOpenZoom = document.querySelector(".upgrade-card-zoom-wrap.zoom-open") != null;
+  closeAllZoomWraps(null);
+  if (hadOpenZoom) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+}, true);
 
 // Builds an always-visible 84px thumbnail wrapped in a hover/tap zoom
 // trigger (see attachZoomCard below) — shared by every "card art" spot
