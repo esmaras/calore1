@@ -1396,7 +1396,14 @@ function renderUpgradeTracker(container) {
     if (canPickUpgrades) {
       sponsorCell.appendChild(selectInput(e.sponsor, ["", ...sponsorNames], (v) => { e.sponsor = v || null; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
     } else {
-      sponsorCell.appendChild(document.createTextNode(e.sponsor || "—"));
+      // Single line, never wrapped — a read-only label that wraps to 2
+      // lines for a long sponsor name (e.g. "E. Mercury Air System") while
+      // a shorter one next to it stays on 1 pushes that cell's card art
+      // down further than its neighbors, breaking the row-wide alignment
+      // .upgrade-card-thumb's fixed height otherwise guarantees. A select
+      // never has this problem (it never wraps its own display text
+      // either), so this only ever showed up in the read-only path.
+      sponsorCell.appendChild(h("div", { style: "white-space: nowrap;" }, e.sponsor || "—"));
     }
     if (e.sponsor) {
       // Same hover/tap-to-reveal card art as an upgrade slot (shared
@@ -1425,7 +1432,8 @@ function renderUpgradeTracker(container) {
         cell.appendChild(upgradeSelect(val, (v) => { e.upgrades[i] = v; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
       } else {
         const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(val));
-        cell.appendChild(document.createTextNode(val != null ? `#${val}${u ? " · " + u.type : ""}` : "—"));
+        // Same single-line fix as the sponsor cell above.
+        cell.appendChild(h("div", { style: "white-space: nowrap;" }, val != null ? `#${val}${u ? " · " + u.type : ""}` : "—"));
       }
       if (val != null) {
         const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(val));
