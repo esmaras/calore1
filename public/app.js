@@ -1216,13 +1216,18 @@ function closeAllZoomWraps(except) {
 // if the trigger's already open) — so this only ever needs to handle
 // "somewhere else entirely" and never fights that toggle.
 //
-// Capture phase, not bubble: while a card is zoomed, a dismiss-tap should
-// ONLY dismiss it — not also activate whatever it happened to land on
-// (a row's toggle button, a select, another tab). Capture runs before the
-// target's own click handler, so stopping propagation here (when a zoom
-// was actually open) swallows the click before it reaches that handler at
-// all, rather than closing the zoom and letting the click through anyway.
-document.addEventListener("click", (e) => {
+// Capture phase, on pointerdown rather than click: while a card is
+// zoomed, a dismiss-tap should ONLY dismiss it — not also activate
+// whatever it happened to land on (a row's toggle button, a <select>,
+// another tab). A click-based version of this (capture-phase, same idea)
+// worked on desktop but not on mobile — on touch, a target's own default
+// action (e.g. a <select> opening its native picker) can be tied to an
+// earlier event in the tap sequence than the synthesized "click", so
+// swallowing at "click" was too late to stop it. pointerdown fires first;
+// calling preventDefault() on it suppresses the whole downstream
+// mouse/click sequence the spec derives from that same pointer press, so
+// nothing downstream ever gets a chance to fire, on any input type.
+function dismissZoomAndSwallow(e) {
   if (e.target.closest(".upgrade-zoom-trigger")) return;
   const hadOpenZoom = document.querySelector(".upgrade-card-zoom-wrap.zoom-open") != null;
   closeAllZoomWraps(null);
@@ -1230,7 +1235,12 @@ document.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
   }
-}, true);
+}
+document.addEventListener("pointerdown", dismissZoomAndSwallow, true);
+// Kept alongside pointerdown (not instead of it) for the one path that
+// skips pointer events entirely: a keyboard-triggered click (Enter/Space
+// on a focused element) while a card happens to be zoomed.
+document.addEventListener("click", dismissZoomAndSwallow, true);
 
 // Builds an always-visible 84px thumbnail wrapped in a hover/tap zoom
 // trigger (see attachZoomCard below) — shared by every "card art" spot
