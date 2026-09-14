@@ -119,6 +119,9 @@ router.put("/proposals/freeform/:id/vote", async (req, res) => {
     const items = freeformItem?.items || [];
     const idx = items.findIndex((p) => p.id === id);
     if (idx === -1) return res.status(404).json({ error: "No such proposal" });
+    if (!items[idx].regulationName || !items[idx].regulationName.trim()) {
+      return res.status(400).json({ error: "There's no proposal here yet to vote on" });
+    }
 
     const updated = await castVote({
       item: items[idx],
@@ -152,6 +155,9 @@ router.post("/proposals/freeform/:id/veto", async (req, res) => {
     const items = freeformItem?.items || [];
     const idx = items.findIndex((p) => p.id === id);
     if (idx === -1) return res.status(404).json({ error: "No such proposal" });
+    if (!items[idx].regulationName || !items[idx].regulationName.trim()) {
+      return res.status(400).json({ error: "There's no proposal here yet to veto" });
+    }
 
     const updated = await castVeto({
       item: items[idx],
@@ -183,6 +189,9 @@ router.put("/proposals/:driverId/vote", async (req, res) => {
 
     const proposalItem = await repo.getItem(keys.ficcProposal(driverId, ctx.season));
     if (!proposalItem) return res.status(404).json({ error: "No such proposal" });
+    if (!proposalItem.regulationName || !proposalItem.regulationName.trim()) {
+      return res.status(400).json({ error: "There's no proposal here yet to vote on" });
+    }
 
     const updated = await castVote({
       item: proposalItem,
@@ -210,6 +219,9 @@ router.post("/proposals/:driverId/veto", async (req, res) => {
 
     const proposalItem = await repo.getItem(keys.ficcProposal(driverId, ctx.season));
     if (!proposalItem) return res.status(404).json({ error: "No such proposal" });
+    if (!proposalItem.regulationName || !proposalItem.regulationName.trim()) {
+      return res.status(400).json({ error: "There's no proposal here yet to veto" });
+    }
 
     const updated = await castVeto({
       item: proposalItem,

@@ -374,6 +374,12 @@ let pendingSaveCount = 0;
 // that driver's next successful save.
 const upgradeTrackerRowErrors = new Map();
 
+// A driver's in-progress Yes/No pick for an open vote, keyed by item id —
+// purely local UI state, never sent to the server until Submit Vote is
+// clicked (see buildVotingTd/renderVotingControl below). Lets them change
+// their mind freely beforehand; cleared once the vote is actually cast.
+const pendingVoteSelections = new Map();
+
 function setSaveState(state) {
   const elS = document.getElementById("save-state");
   elS.classList.remove("saving", "saved", "error");
@@ -529,6 +535,10 @@ function reopenSeason(seasonNumber) {
   return apiPost(`/api/season/${seasonNumber}/reopen`);
 }
 
+function closeOffseason(seasonNumber) {
+  return apiPost(`/api/season/${seasonNumber}/close-offseason`);
+}
+
 function saveTechRegs() {
   scheduleSave("techregs", () => apiPut(`/api/techregs${seasonQuery()}`, { items: DATA.technicalRegulations }));
 }
@@ -587,6 +597,44 @@ async function handleVoteClick(castFn) {
   }
 }
 
+// Submits every currently staged (not-yet-submitted) Yes/No pick among the
+// given votable items — backs each page's "Submit All Votes" button.
+// `entries` is [{ id, castVoteFn }]; only entries with a pending selection
+// (see pendingVoteSelections) actually fire.
+//
+// One at a time, deliberately NOT Promise.all/allSettled in parallel: every
+// technical regulation for a season lives inside the SAME single DynamoDB
+// item (one `items` array), and so does every freeform FICC proposal —
+// each vote is a read-modify-write of that whole array server-side. Firing
+// them concurrently means two votes can both read the array before either
+// write lands, and whichever write finishes last overwrites the other's
+// vote right out of existence. Awaiting each one before starting the next
+// means every request reads the previous one's already-saved result, so
+// nothing gets silently lost. One failure (e.g. the item resolved in the
+// meantime) doesn't stop the rest — then the page refreshes once at the
+// end rather than once per vote.
+async function submitAllPendingVotes(entries) {
+  const pending = entries.filter(({ id }) => pendingVoteSelections.has(id));
+  if (pending.length === 0) return;
+  const failures = [];
+  for (const { id, castVoteFn } of pending) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await castVoteFn(id, pendingVoteSelections.get(id));
+      pendingVoteSelections.delete(id);
+    } catch (err) {
+      failures.push(err);
+    }
+  }
+  await refreshData();
+  if (failures.length > 0) {
+    showErrorBanner(
+      `${failures.length} of ${pending.length} vote(s) could not be submitted`,
+      failures.map((f) => f.message).join(" ")
+    );
+  }
+}
+
 async function handleVetoClick(castFn) {
   if (!window.confirm("Use the season champion's one-time Golden Wrench veto on this item? It can only be used once per off-season, and can't be undone.")) return;
   try {
@@ -617,10 +665,13 @@ function isVotingLocked(voting) {
 }
 
 // Builds the compact voting UI for one votable item — participation count
-// and Yes/No buttons while blind and open, a resolved-outcome pill once
-// it isn't. `onVote`/`onVeto` are null when the current viewer isn't
-// eligible for that action (not a driver, already voted, veto unavailable).
-function renderVotingControl(voting, { onVote, onVeto }) {
+// and a Yes/No/Submit flow while blind and open, a resolved-outcome pill
+// once it isn't. `onSelect`/`onSubmit`/`onVeto` are null when the current
+// viewer isn't eligible for that action (not a driver, already voted, veto
+// unavailable). Yes/No only stages a local pick (see pendingVote) — nothing
+// reaches the server, and can be changed as many times as they like, until
+// Submit Vote actually casts it.
+function renderVotingControl(voting, { onSelect, onSubmit, pendingVote, onVeto }) {
   const wrap = h("div", { class: "voting-control" });
   if (!voting || !voting.votingOpen) {
     wrap.appendChild(h("span", { class: "muted" }, "—"));
@@ -636,12 +687,15 @@ function renderVotingControl(voting, { onVote, onVeto }) {
   wrap.appendChild(h("div", { class: "muted voting-progress" }, `${voting.votedCount} of ${voting.totalVoters} voted`));
   if (voting.myVote) {
     wrap.appendChild(h("div", { class: "muted" }, `You voted ${voting.myVote === "yes" ? "Yes" : "No"}`));
-  } else if (onVote) {
-    const yesBtn = h("button", { class: "btn small" }, "Yes");
-    const noBtn = h("button", { class: "btn small" }, "No");
-    yesBtn.addEventListener("click", () => onVote("yes"));
-    noBtn.addEventListener("click", () => onVote("no"));
-    wrap.appendChild(h("div", { class: "voting-buttons" }, yesBtn, noBtn));
+  } else if (onSelect) {
+    const yesBtn = h("button", { class: "btn small" + (pendingVote === "yes" ? " voting-yes-selected" : "") }, "Yes");
+    const noBtn = h("button", { class: "btn small" + (pendingVote === "no" ? " voting-no-selected" : "") }, "No");
+    yesBtn.addEventListener("click", () => onSelect("yes"));
+    noBtn.addEventListener("click", () => onSelect("no"));
+    const submitBtn = h("button", { class: "btn small" }, "Submit Vote");
+    submitBtn.disabled = pendingVote == null;
+    submitBtn.addEventListener("click", onSubmit);
+    wrap.appendChild(h("div", { class: "voting-buttons" }, yesBtn, noBtn, submitBtn));
   }
   if (onVeto) {
     const vetoBtn = h("button", { class: "btn small voting-veto" }, "🔧 Veto");
@@ -658,11 +712,17 @@ function renderVotingControl(voting, { onVote, onVeto }) {
 function buildVotingTd(item, vetoEligible, castVoteFn, castVetoFn, idField = "id") {
   const id = item[idField];
   const open = item.voting?.status === "open";
-  const onVote = CURRENT_USER?.driverId && open && !item.voting?.myVote
-    ? (vote) => handleVoteClick(() => castVoteFn(id, vote))
+  const canVote = !!(CURRENT_USER?.driverId && open && !item.voting?.myVote);
+  const pendingVote = pendingVoteSelections.get(id) ?? null;
+  const onSelect = canVote ? (vote) => { pendingVoteSelections.set(id, vote); renderActive(); } : null;
+  const onSubmit = canVote
+    ? () => handleVoteClick(async () => {
+        await castVoteFn(id, pendingVoteSelections.get(id));
+        pendingVoteSelections.delete(id);
+      })
     : null;
   const onVeto = vetoEligible && open ? () => handleVetoClick(() => castVetoFn(id)) : null;
-  return h("td", {}, renderVotingControl(item.voting, { onVote, onVeto }));
+  return h("td", {}, renderVotingControl(item.voting, { onSelect, onSubmit, pendingVote, onVeto }));
 }
 
 function saveOffseasonRegs() {
@@ -671,6 +731,10 @@ function saveOffseasonRegs() {
 
 function saveOffseasonWinnings(position, winnings) {
   scheduleSave(`offseason-winnings:${position}`, () => apiPut(`/api/offseason/winnings/${position}${seasonQuery()}`, { winnings }));
+}
+
+function saveSwapLimit(position, maxSwaps) {
+  scheduleSave(`offseason-swaplimit:${position}`, () => apiPut(`/api/offseason/swap-limit/${position}${seasonQuery()}`, { maxSwaps }));
 }
 
 function saveHofMissedRaceLog() {
@@ -787,7 +851,7 @@ function recomputeStandings() {
 
 function renderStandings(container) {
   recomputeStandings();
-  const allowed = isAdmin();
+  const allowed = isAdmin() && !DATA.season.ended;
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "Driver's Championship — " + (DATA.lore.driversTrophy.name || "")));
   if (!allowed) panel.appendChild(h("p", { class: "muted panel-note" }, "Race results are entered by the league admin."));
@@ -1066,11 +1130,18 @@ function renderDrivers(container) {
 
       const removeBtn = h("button", { class: "btn small danger", style: "margin-top:6px; margin-left:6px;" }, "Remove driver");
       removeBtn.addEventListener("click", async () => {
-        if (!window.confirm(`Remove ${d.driver} (${d.player})? This deletes their login and roster entry. Their past standings/upgrade tracker history stays but won't be shown anywhere.`)) return;
+        if (!window.confirm(
+          `Remove ${d.driver} (${d.player})? If they have any race history, they're retired instead of deleted — excluded from this season onward, with every past season's standings and results left exactly as they are. If they have no history at all yet, this deletes them and their login completely.`
+        )) return;
         removeBtn.disabled = true;
         try {
-          await apiRequest("DELETE", `/api/admin/drivers/${d.driverId}`);
+          const result = await apiRequest("DELETE", `/api/admin/drivers/${d.driverId}`);
           await refreshData();
+          if (result.retired) {
+            showBanner(h("div", {}, h("strong", {}, `${d.driver} retired`),
+              h("div", { class: "muted", style: "margin-top:4px;" }, `Excluded from season ${result.leftSeason} onward — their past standings and results are preserved.`)
+            ));
+          }
         } catch (err) {
           showErrorBanner(`Could not remove ${d.driver}`, err.message);
           removeBtn.disabled = false;
@@ -1350,14 +1421,14 @@ function recomputeUpgradeTracker() {
 
 function renderUpgradeTracker(container) {
   recomputeUpgradeTracker();
-  const admin = isAdmin();
+  const admin = isAdmin() && !DATA.season.ended;
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "Upgrade Tracker — Current Season"));
   if (DATA.upgradeTracker.rule) panel.appendChild(h("p", { class: "muted panel-note" }, DATA.upgradeTracker.rule));
   if (!admin) panel.appendChild(h("p", { class: "muted panel-note" }, "Modification is managed by the league admin. Drivers can select their own sponsor and upgrade parts below."));
   const wrap = h("div", { class: "table-scroll" });
   const table = h("table");
-  const headRow = h("tr", {}, h("th", { class: "upgrade-row-toggle-col" }), h("th", {}, "Driver"), h("th", {}, "Sponsor"), h("th", {}, "Budget"), h("th", {}, "Carryover"));
+  const headRow = h("tr", {}, h("th", { class: "upgrade-row-toggle-col" }), h("th", {}, "Driver"), h("th", {}, "Sponsor"), h("th", {}, "Budget"), h("th", {}, "Carryover"), h("th", {}, "Swaps"));
   for (let i = 0; i < MAX_UPGRADE_SLOTS; i++) headRow.appendChild(h("th", {}, `Upgrade ${i + 1}`));
   headRow.appendChild(h("th", {}, "Modification"));
   headRow.appendChild(h("th", {}, "Remaining"));
@@ -1400,7 +1471,7 @@ function renderUpgradeTracker(container) {
     // conflicting pick still saves and shows up as the same "!" row flag
     // (see e.complianceIssues, computeSponsorCompliance in
     // server/db/priority.js) rather than being blocked outright.
-    const canPickUpgrades = isSelfOrAdmin(e.driverId);
+    const canPickUpgrades = isSelfOrAdmin(e.driverId) && !DATA.season.ended;
     const sponsorTd = h("td");
     const sponsorCell = h("div", { class: "upgrade-cell" });
     if (canPickUpgrades) {
@@ -1435,6 +1506,13 @@ function renderUpgradeTracker(container) {
     // computed, not editable by anyone (see computeCarryoverByDriver in
     // server/db/assemble.js).
     tr.appendChild(h("td", { class: "cell-computed" }, fmtMoney(e.carryover)));
+    // How many of the upgrade cards this driver started the season holding
+    // (see carryoverUpgrades/swapAllowance in server/db/assemble.js, seeded
+    // by the off-season "Begin Next Season" transition) have been swapped
+    // out for something else, vs. how many they're allowed to swap. No
+    // limit at all (a fresh season, or a driver with no prior-season row)
+    // shows as "—".
+    tr.appendChild(h("td", { class: "cell-computed" }, e.swapAllowance != null ? `${e.swapsUsed}/${e.swapAllowance}` : "—"));
     e.upgrades.forEach((val, i) => {
       const td = h("td");
       const cell = h("div", { class: "upgrade-cell" });
@@ -1478,15 +1556,28 @@ function renderUpgradeTracker(container) {
     // regardless of which check caught it.
     if (e.outOfCompliance) {
       const message = e.complianceIssues
-        .map((issue) => issue.sponsor != null
-          ? `Sponsor "${issue.sponsor}" is oversubscribed — ${issue.higherPriorityCount} higher-priority driver(s) also claimed it.`
-          : `Part #${issue.partNumber} (${issue.partType}) is oversubscribed — ${issue.higherPriorityCount} higher-priority driver(s) also selected it.`)
+        .map((issue) => {
+          if (issue.sponsor != null) {
+            return `Sponsor "${issue.sponsor}" is oversubscribed — ${issue.higherPriorityCount} higher-priority driver(s) also claimed it.`;
+          }
+          // A driver retaining a part from last season always outranks a
+          // fresh claim on it regardless of standings priority (see
+          // rankClaimsByPriority in server/db/priority.js) — worth calling
+          // out separately from genuine higher-priority claims, since
+          // "higher priority" would be misleading when every claim ahead
+          // of this one is actually a LOWER-priority driver who simply
+          // never gave the part up.
+          const reasons = [];
+          if (issue.retainedCount > 0) reasons.push(`${issue.retainedCount} team(s) retaining it from last season`);
+          if (issue.higherPriorityCount > 0) reasons.push(`${issue.higherPriorityCount} higher-priority driver(s) also selected it`);
+          return `Part #${issue.partNumber} (${issue.partType}) is oversubscribed — ${reasons.join(" and ")}.`;
+        })
         .join(" ");
-      const detailTd = h("td", { colspan: String(7 + MAX_UPGRADE_SLOTS) }, h("span", { class: "compliance-icon" }, "!"), " " + message);
+      const detailTd = h("td", { colspan: String(8 + MAX_UPGRADE_SLOTS) }, h("span", { class: "compliance-icon" }, "!"), " " + message);
       tbody.appendChild(h("tr", { class: "compliance-detail-row" }, detailTd));
     }
     if (rowError) {
-      const detailTd = h("td", { colspan: String(7 + MAX_UPGRADE_SLOTS) }, h("span", { class: "compliance-icon" }, "!"), " " + rowError);
+      const detailTd = h("td", { colspan: String(8 + MAX_UPGRADE_SLOTS) }, h("span", { class: "compliance-icon" }, "!"), " " + rowError);
       tbody.appendChild(h("tr", { class: "compliance-detail-row" }, detailTd));
     }
   }
@@ -1509,7 +1600,7 @@ function saveCardRestrictions(fields) {
 }
 
 function renderCardRestrictions(container) {
-  const admin = isAdmin();
+  const admin = isAdmin() && !DATA.season.ended;
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "Card Restrictions"));
   panel.appendChild(h("p", { class: "muted panel-note" },
@@ -1878,7 +1969,7 @@ function renderSeason(container) {
   statusLine.appendChild(
     h("div", {}, `Viewing season #${DATA.viewedSeasonNumber} (${s.label}) — `,
       isCurrent ? h("strong", { style: "color:var(--good);" }, "this is the current season") : h("span", { class: "muted" }, `current season is #${DATA.currentSeasonNumber}`),
-      s.ended ? h("span", { class: "muted" }, " · ended") : null
+      s.offseasonEnded ? h("span", { class: "muted" }, " · off-season closed") : s.ended ? h("span", { class: "muted" }, " · off-season") : null
     )
   );
   const statusActions = h("div", { style: "display:flex; gap:8px;" });
@@ -1913,7 +2004,7 @@ function renderSeason(container) {
     });
     statusActions.appendChild(endBtn);
   }
-  if (allowed && s.ended) {
+  if (allowed && s.ended && !s.offseasonEnded) {
     const reopenBtn = h("button", { class: "btn small" }, "Reopen season");
     reopenBtn.addEventListener("click", async () => {
       if (!window.confirm(
@@ -1929,6 +2020,23 @@ function renderSeason(container) {
       }
     });
     statusActions.appendChild(reopenBtn);
+  }
+  if (allowed && s.ended && !s.offseasonEnded) {
+    const closeOffseasonBtn = h("button", { class: "btn small primary" }, "Close Off-Season");
+    closeOffseasonBtn.addEventListener("click", async () => {
+      if (!window.confirm(
+        `Close the off-season for #${DATA.viewedSeasonNumber} (${s.label})? This permanently closes FICC backlog / technical-regulation voting for it. This can't be undone. It does not create or switch to a next season — use "+ Add season" and "Set as current season" for that, whenever you're ready.`
+      )) return;
+      closeOffseasonBtn.disabled = true;
+      try {
+        await closeOffseason(DATA.viewedSeasonNumber);
+        await refreshData();
+      } catch (err) {
+        showErrorBanner("Could not close off-season", err.message);
+        closeOffseasonBtn.disabled = false;
+      }
+    });
+    statusActions.appendChild(closeOffseasonBtn);
   }
   statusLine.appendChild(statusActions);
   bannerPanel.appendChild(statusLine);
@@ -1961,13 +2069,18 @@ function renderSeason(container) {
     container.appendChild(addSeasonPanel);
   }
 
+  // Lifecycle actions above (End/Reopen/Set current/Begin Next Season) and
+  // Add Season stay admin-clickable regardless of lock state — only the
+  // season's own config/schedule freezes once it ends.
+  const configEditable = allowed && !s.ended;
+
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "Season Information"));
-  if (!allowed) panel.appendChild(h("p", { class: "muted panel-note" }, "Managed by the league admin."));
+  if (!configEditable) panel.appendChild(h("p", { class: "muted panel-note" }, allowed ? "Locked — this season has ended." : "Managed by the league admin."));
   const kv = h("div", { class: "kv-grid" });
   const addKV = (label, inputEl) => { kv.appendChild(h("label", {}, label)); kv.appendChild(inputEl); };
   addKV("Season number", h("div", { class: "cell-computed" }, String(s.seasonNumber ?? "")));
-  if (allowed) {
+  if (configEditable) {
     addKV("Label", textInput(s.label, (v) => { s.label = v; saveSeasonField({ label: v }); }));
     addKV("Races this season", numberInput(s.racesThisSeason, (v) => { s.racesThisSeason = v; saveSeasonField({ racesThisSeason: v }); }));
     addKV("Upgrade slots this season", numberInput(s.upgradeSlots, (v) => { s.upgradeSlots = v; saveSeasonField({ upgradeSlots: v }); normalizeData(); }));
@@ -1994,7 +2107,7 @@ function renderSeason(container) {
   const tbody = h("tbody");
   s.schedule.forEach((r, i) => {
     const tr = h("tr");
-    if (allowed) {
+    if (configEditable) {
       const tdNum = h("td"); tdNum.appendChild(numberInput(r.race, (v) => { r.race = v; saveSeasonField({ schedule: s.schedule }); }));
       const tdTrack = h("td"); tdTrack.appendChild(textInput(r.track, (v) => { r.track = v; saveSeasonField({ schedule: s.schedule }); }));
       const tdDel = h("td");
@@ -2011,7 +2124,7 @@ function renderSeason(container) {
   });
   table.appendChild(tbody);
   panel2.appendChild(table);
-  if (allowed) {
+  if (configEditable) {
     const addBtn = h("button", { class: "btn" }, "+ Add race");
     addBtn.addEventListener("click", () => {
       const nextNum = (s.schedule.at(-1)?.race || 0) + 1;
@@ -2026,9 +2139,18 @@ function renderSeason(container) {
 
 // ---------- Technical Regulations ----------
 function renderTechRegs(container) {
-  const allowed = isAdmin();
+  const allowed = isAdmin() && !DATA.season.ended;
   const panel = h("div", { class: "panel" });
-  panel.appendChild(h("h2", {}, "1961 Technical Regulations"));
+  const heading = h("div", { style: "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;" }, h("h2", {}, "1961 Technical Regulations"));
+  const votingEntries = DATA.technicalRegulations.map((r) => ({ id: r.id, castVoteFn: castTechRegVote }));
+  const pendingCount = votingEntries.filter(({ id }) => pendingVoteSelections.has(id)).length;
+  if (CURRENT_USER?.driverId) {
+    const submitAllBtn = h("button", { class: "btn small" }, pendingCount > 0 ? `Submit All Votes (${pendingCount})` : "Submit All Votes");
+    submitAllBtn.disabled = pendingCount === 0;
+    submitAllBtn.addEventListener("click", () => submitAllPendingVotes(votingEntries));
+    heading.appendChild(submitAllBtn);
+  }
+  panel.appendChild(heading);
   if (!allowed) panel.appendChild(h("p", { class: "muted panel-note" }, "Managed by the league admin."));
   const table = h("table");
   table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Regulation"), h("th", {}, "Explanation"), h("th", {}, "Voting"), h("th", {}, ""))));
@@ -2067,7 +2189,7 @@ function renderTechRegs(container) {
 
 // ---------- FICC Backlog ----------
 function renderFiccBacklog(container) {
-  const notesAllowed = isAdmin();
+  const notesAllowed = isAdmin() && !DATA.season.offseasonEnded;
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "FICC Rules Backlog"));
   if (notesAllowed) {
@@ -2078,7 +2200,19 @@ function renderFiccBacklog(container) {
   container.appendChild(panel);
 
   const panel2 = h("div", { class: "panel" });
-  panel2.appendChild(h("h2", {}, "Proposed Regulations"));
+  const heading2 = h("div", { style: "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;" }, h("h2", {}, "Proposed Regulations"));
+  const driverRowCount = DATA.drivers.length;
+  const votingEntries = DATA.ficcBacklog.proposals
+    .map((p, i) => (i < driverRowCount ? { id: p.driverId, castVoteFn: castFiccProposalVote, p } : { id: p.id, castVoteFn: castFiccFreeformVote, p }))
+    .filter(({ p }) => p.regulationName && p.regulationName.trim());
+  const pendingCount2 = votingEntries.filter(({ id }) => pendingVoteSelections.has(id)).length;
+  if (CURRENT_USER?.driverId) {
+    const submitAllBtn = h("button", { class: "btn small" }, pendingCount2 > 0 ? `Submit All Votes (${pendingCount2})` : "Submit All Votes");
+    submitAllBtn.disabled = pendingCount2 === 0;
+    submitAllBtn.addEventListener("click", () => submitAllPendingVotes(votingEntries));
+    heading2.appendChild(submitAllBtn);
+  }
+  panel2.appendChild(heading2);
   const table = h("table");
   table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Proposed Regulation"), h("th", {}, "Explanation"), h("th", {}, "Voting"), h("th", {}, ""))));
   const tbody = h("tbody");
@@ -2086,16 +2220,15 @@ function renderFiccBacklog(container) {
   // The first N proposal rows are INDEX'd from the driver lineup in the sheet
   // (one proposal slot per driver) — driver-owned-editable, like the Drivers
   // tab. The remaining freeform rows are admin-only.
-  const driverRowCount = DATA.drivers.length;
   DATA.ficcBacklog.proposals.forEach((p, i) => {
     const isDriverRow = i < driverRowCount;
     if (isDriverRow) p.driverName = DATA.drivers[i]?.driver ?? p.driverName;
-    const rowAllowed = (isDriverRow ? isSelfOrAdmin(p.driverId) : isAdmin()) && !isVotingLocked(p.voting);
+    const rowAllowed = (isDriverRow ? isSelfOrAdmin(p.driverId) : isAdmin()) && !isVotingLocked(p.voting) && !DATA.season.offseasonEnded;
     const tr = h("tr");
     const tdDriver = h("td");
     if (isDriverRow) {
       tdDriver.appendChild(driverBadge(p.driverName));
-    } else if (isAdmin() && !isVotingLocked(p.voting)) {
+    } else if (isAdmin() && !isVotingLocked(p.voting) && !DATA.season.offseasonEnded) {
       tdDriver.appendChild(driverSelectField(p.driverName, (v) => { p.driverName = v || null; saveFiccFreeform(); }));
     } else {
       tdDriver.appendChild(document.createTextNode(p.driverName || ""));
@@ -2110,13 +2243,20 @@ function renderFiccBacklog(container) {
       tr.appendChild(h("td", {}, p.regulationName || ""));
       tr.appendChild(h("td", {}, p.explanation || ""));
     }
+    // A driver-linked row exists for every driver whether or not they've
+    // actually written a proposal yet — nothing to vote on until they
+    // have, so skip the voting UI entirely rather than showing a live
+    // ballot for a blank row.
+    const hasProposal = !!(p.regulationName && p.regulationName.trim());
     tr.appendChild(
-      isDriverRow
+      !hasProposal
+        ? h("td", {}, h("span", { class: "muted" }, "—"))
+        : isDriverRow
         ? buildVotingTd(p, vetoEligible, castFiccProposalVote, castFiccProposalVeto, "driverId")
         : buildVotingTd(p, vetoEligible, castFiccFreeformVote, castFiccFreeformVeto, "id")
     );
     const tdDel = h("td");
-    if (!isDriverRow && isAdmin() && !isVotingLocked(p.voting)) {
+    if (!isDriverRow && isAdmin() && !isVotingLocked(p.voting) && !DATA.season.offseasonEnded) {
       const b = h("button", { class: "btn small" }, "✕");
       b.addEventListener("click", () => { DATA.ficcBacklog.proposals.splice(i, 1); saveFiccFreeform(); renderActive(); });
       tdDel.appendChild(b);
@@ -2126,7 +2266,7 @@ function renderFiccBacklog(container) {
   });
   table.appendChild(tbody);
   panel2.appendChild(table);
-  if (isAdmin()) {
+  if (isAdmin() && !DATA.season.offseasonEnded) {
     const addBtn = h("button", { class: "btn" }, "+ Add proposal");
     addBtn.addEventListener("click", () => { DATA.ficcBacklog.proposals.push({ driverName: null, regulationName: "", explanation: "" }); saveFiccFreeform(); renderActive(); });
     panel2.appendChild(addBtn);
@@ -2196,6 +2336,37 @@ function renderOffSeason(container) {
   winTable.appendChild(winTbody);
   winPanel.appendChild(winTable);
   container.appendChild(winPanel);
+
+  // Same shape/purpose as Season-End Winnings above, one row per position:
+  // how many upgrade cards a driver finishing there may swap out once the
+  // next season's Upgrade Tracker starts them off with whatever they held
+  // at the end of this one (see createNextSeason in
+  // server/routes/season.routes.js, which freezes this onto each driver's
+  // new-season row whenever the next season is created).
+  const swapPanel = h("div", { class: "panel" });
+  swapPanel.appendChild(h("h2", {}, "Upgrade Swap Allowance"));
+  swapPanel.appendChild(h("p", { class: "muted panel-note" },
+    "One row per driver, ordered by this season's final standing — how many upgrade cards that finishing position may swap out next season. Leave blank for no limit. Applied when you begin the next season."
+  ));
+  const swapTable = h("table");
+  swapTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Driver"), h("th", {}, "Max Swaps"))));
+  const swapTbody = h("tbody");
+  DATA.offSeasonBudget.swapLimitByDriver.forEach((w) => {
+    const tr = h("tr");
+    tr.appendChild(h("td", { class: "cell-computed " + podiumClass("pos-", w.position) }, String(w.position)));
+    tr.appendChild(h("td", {}, driverBadge(w.driver)));
+    const tdSwap = h("td");
+    if (allowed) {
+      tdSwap.appendChild(numberInput(w.maxSwaps, (v) => { w.maxSwaps = v; saveSwapLimit(w.position, v); }));
+    } else {
+      tdSwap.appendChild(document.createTextNode(typeof w.maxSwaps === "number" ? String(w.maxSwaps) : "No limit"));
+    }
+    tr.appendChild(tdSwap);
+    swapTbody.appendChild(tr);
+  });
+  swapTable.appendChild(swapTbody);
+  swapPanel.appendChild(swapTable);
+  container.appendChild(swapPanel);
 }
 
 // ---------- Hall of Fame ----------

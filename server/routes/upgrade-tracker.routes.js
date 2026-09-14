@@ -2,7 +2,7 @@ const express = require("express");
 const repo = require("../db/repo");
 const { keys, itemTypes } = require("../db/keys");
 const { requireAdmin, requireSelfOrAdmin } = require("../auth/middleware");
-const { resolveSeason } = require("../db/currentSeason");
+const { resolveSeason, seasonEndedLock } = require("../db/currentSeason");
 
 const router = express.Router();
 
@@ -73,7 +73,30 @@ router.put("/:driverId", requireSelfOrAdmin("driverId"), async (req, res) => {
   if (!driver) return res.status(404).json({ error: "No such driver" });
 
   const season = await resolveSeason(req.query.season);
+  const seasonItem = await repo.getItem(keys.season(season));
+  if (seasonEndedLock(seasonItem)) return res.status(400).json({ error: "Season has ended — the Upgrade Tracker is locked" });
   const existing = (await repo.getItem(keys.upgradeTracker(driverId, season))) || { sponsor: null, upgrades: [], modification: 0 };
+
+  const nextUpgrades = upgrades !== undefined ? upgrades : existing.upgrades;
+
+  // Off-season catch-up: a driver whose new-season row was seeded from
+  // what they finished the prior season holding (see createNextSeason in
+  // season.routes.js) can only swap out so many of those cards, based on
+  // their finishing position — carryoverUpgrades is that frozen starting
+  // point, swapAllowance the frozen limit. Both are absent/null for a
+  // driver with no such history (a brand-new season or a brand-new
+  // driver), meaning no restriction. Counted as "how many carried-over
+  // parts are no longer present," not array-position diffing, so
+  // reordering picks or swapping two held parts' slots never counts
+  // against the limit.
+  if (Array.isArray(existing.carryoverUpgrades) && existing.swapAllowance != null) {
+    const swapsUsed = existing.carryoverUpgrades.filter((p) => p != null && !nextUpgrades.includes(p)).length;
+    if (swapsUsed > existing.swapAllowance) {
+      return res.status(400).json({
+        error: `You can only swap out ${existing.swapAllowance} upgrade card${existing.swapAllowance === 1 ? "" : "s"} this season — this would swap ${swapsUsed}.`,
+      });
+    }
+  }
 
   const item = {
     ...keys.upgradeTracker(driverId, season),
@@ -81,8 +104,10 @@ router.put("/:driverId", requireSelfOrAdmin("driverId"), async (req, res) => {
     driverId,
     season,
     sponsor: sponsor !== undefined ? sponsor : existing.sponsor,
-    upgrades: upgrades !== undefined ? upgrades : existing.upgrades,
+    upgrades: nextUpgrades,
     modification: isAdmin && modification !== undefined ? modification : existing.modification,
+    carryoverUpgrades: existing.carryoverUpgrades ?? null,
+    swapAllowance: existing.swapAllowance ?? null,
   };
   await repo.putItem(item);
   res.json(item);

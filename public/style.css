@@ -756,6 +756,12 @@ footer.hint {
 .voting-failed { background: rgba(230, 57, 70, 0.15); color: var(--accent); }
 .voting-vetoed { background: rgba(224, 160, 32, 0.18); color: var(--warn); }
 
+/* A staged (not-yet-submitted) Yes/No pick — green for Yes, the app's
+   existing red accent for No, so the two read as opposites rather than
+   both using the same "primary action" red. */
+.btn.voting-yes-selected { background: var(--good); border-color: var(--good); color: white; }
+.btn.voting-no-selected { background: var(--accent); border-color: var(--accent); color: white; }
+
 @media (max-width: 700px) {
   .kv-grid { grid-template-columns: 1fr; }
   .topbar { flex-direction: column; align-items: flex-start; gap: 8px; }

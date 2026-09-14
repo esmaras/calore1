@@ -54,6 +54,13 @@ const keys = {
   // carryover (see winningsByDriver in assembleData, which resolves
   // position -> current holder before that read happens).
   offSeasonWinnings: (position, season) => ({ PK: `OFFSEASONWINNINGS#${position}`, SK: `SEASON#${requireSeason(season)}` }),
+  // Same shape/purpose as offSeasonWinnings above, but for how many
+  // upgrade cards a driver in each finishing position is allowed to swap
+  // out once the next season begins (see createNextSeason in
+  // season.routes.js, which reads this by position and freezes the
+  // resulting number onto each driver's new UPGRADETRACKER item as
+  // swapAllowance).
+  offSeasonSwapLimit: (position, season) => ({ PK: `OFFSEASONSWAPLIMIT#${position}`, SK: `SEASON#${requireSeason(season)}` }),
   // Tracking record for the migrations runner (see migrations/) — one item
   // per migration file, written the moment it finishes running. Its mere
   // existence means "applied"; the runner skips any migration whose record
@@ -88,6 +95,7 @@ const itemTypes = {
   HALLOFFAME_MISSEDRACELOG: "HALLOFFAME_MISSEDRACELOG",
   OFFSEASON_REGULATIONS: "OFFSEASON_REGULATIONS",
   OFFSEASON_WINNINGS: "OFFSEASON_WINNINGS",
+  OFFSEASON_SWAPLIMIT: "OFFSEASON_SWAPLIMIT",
   MIGRATION: "MIGRATION",
   AUDIT_LOG: "AUDIT_LOG",
 };

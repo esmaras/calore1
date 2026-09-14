@@ -1,7 +1,7 @@
 const crypto = require("crypto");
 const repo = require("./repo");
 const { keys, itemTypes } = require("./keys");
-const { buildStandingsRowsForSeason } = require("./ranking");
+const { buildStandingsRowsForSeason, driversAsOfSeason } = require("./ranking");
 const { resolveSeason } = require("./currentSeason");
 
 // Assigns a stable id to any item missing one — used for freeform lists
@@ -210,8 +210,17 @@ async function loadVotingContext(req) {
     err.status = 400;
     throw err;
   }
+  if (seasonItem.offseasonEnded) {
+    const err = new Error("Voting for this season's off-season has already closed");
+    err.status = 400;
+    throw err;
+  }
   const all = await repo.getAll();
-  const driverItems = all.filter((i) => i.itemType === itemTypes.DRIVER);
+  // Only drivers who'd actually joined by this season count as voters or
+  // toward the pass/fail threshold — a driver added after this off-season
+  // started must not retroactively shift what "6 of 8" needed to mean (see
+  // driversAsOfSeason in ranking.js).
+  const driverItems = driversAsOfSeason(all.filter((i) => i.itemType === itemTypes.DRIVER), season);
   return { season, seasonItem, all, driverItems, driverCount: driverItems.length };
 }
 

@@ -59,11 +59,20 @@ function computePriorityOrder(items, seasonNumber, driverItems, { reversed = fal
   return priorityRank;
 }
 
-// claims: [{ driverId, isNew }] for one part. Existing claims should be
-// listed before any new claim so a stable sort resolves priority ties in
-// favor of whoever already holds the part.
+// claims: [{ driverId, isNew }] for one part. A driver *retaining* a part
+// they carried over from last season (isNew: false — see carryoverUpgrades
+// on each computeCompliance entry) always outranks any fresh claim on that
+// same part, regardless of upgrade-pick priority: a kept part was never
+// actually returned to the shared pool, so there's nothing for a
+// higher-priority driver to legitimately take — only a part someone
+// actually swapped away becomes available to claim by priority. Ties
+// among claims of the same kind (two retained, or two fresh) still
+// resolve by priority as before.
 function rankClaimsByPriority(claims, priorityRank) {
-  return [...claims].sort((a, b) => (priorityRank.get(a.driverId) ?? Infinity) - (priorityRank.get(b.driverId) ?? Infinity));
+  return [...claims].sort((a, b) => {
+    if (!!a.isNew !== !!b.isNew) return a.isNew ? 1 : -1;
+    return (priorityRank.get(a.driverId) ?? Infinity) - (priorityRank.get(b.driverId) ?? Infinity);
+  });
 }
 
 // For every upgrade part, ranks all of this season's current claims by
@@ -79,9 +88,15 @@ function computeCompliance(items, seasonNumber, driverItems, upgradeEntries, upg
 
   const claimsByPart = {};
   for (const entry of upgradeEntries) {
+    const carriedOver = new Set(entry.carryoverUpgrades || []);
     for (const p of entry.upgrades || []) {
       if (p == null) continue;
-      (claimsByPart[p] ||= []).push({ driverId: entry.driverId, isNew: false });
+      // A part still sitting in this driver's carryoverUpgrades was never
+      // swapped out — it's retained, not a fresh pick — so it's exempt
+      // from being bumped by a higher-priority claim (see
+      // rankClaimsByPriority). Anything else, including a brand-new
+      // driver's picks or a mid-season swap-in, is a fresh claim.
+      (claimsByPart[p] ||= []).push({ driverId: entry.driverId, isNew: !carriedOver.has(p) });
     }
   }
 
@@ -89,10 +104,21 @@ function computeCompliance(items, seasonNumber, driverItems, upgradeEntries, upg
   for (const [partNumberStr, claims] of Object.entries(claimsByPart)) {
     const partNumber = Number(partNumberStr);
     const total = countAvailableByPart[partNumber] || 0;
-    rankClaimsByPriority(claims, priorityRank).forEach((claim, idx) => {
+    const ranked = rankClaimsByPriority(claims, priorityRank);
+    ranked.forEach((claim, idx) => {
       if (idx < total) return; // within capacity — compliant
+      // idx alone conflates two different reasons a claim gets bumped: a
+      // genuinely higher-priority fresh claim, or a retained claim ahead
+      // of it (which always sorts first regardless of priority — see
+      // rankClaimsByPriority). Split them so the client can say which one
+      // actually happened, instead of always blaming "higher priority"
+      // even when every claim ahead of this one is a lower-priority
+      // driver simply retaining a part they never gave up.
+      const aheadClaims = ranked.slice(0, idx);
+      const retainedCount = aheadClaims.filter((c) => !c.isNew).length;
+      const higherPriorityCount = aheadClaims.length - retainedCount;
       const list = issuesByDriver.get(claim.driverId) || [];
-      list.push({ partNumber, partType: partTypeByNumber[partNumber], higherPriorityCount: idx });
+      list.push({ partNumber, partType: partTypeByNumber[partNumber], higherPriorityCount, retainedCount });
       issuesByDriver.set(claim.driverId, list);
     });
   }

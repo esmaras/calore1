@@ -1,5 +1,5 @@
 const { itemTypes } = require("./keys");
-const { buildStandingsRowsForSeason } = require("./ranking");
+const { buildStandingsRowsForSeason, driversAsOfSeason } = require("./ranking");
 const { computeCompliance, computeSponsorCompliance } = require("./priority");
 const { buildVotingView, championDriverId } = require("./voting");
 
@@ -70,17 +70,32 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
   const one = (type) => strip((byType[type] || [])[0]);
   const bySeason = (type, season) => (byType[type] || []).filter((i) => i.season === season);
 
-  const driverItems = [...(byType[itemTypes.DRIVER] || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  const driverIds = driverItems.map((d) => d.driverId);
-  const driverById = Object.fromEntries(driverItems.map((d) => [d.driverId, d]));
+  // allDriverItems is the full current roster — used only for the Drivers
+  // page itself (drivers/inventory aren't season-scoped, so that page
+  // always shows everyone regardless of which season is being viewed).
+  // Everything else below that's specific to `seasonNumber` (standings,
+  // upgrade tracker, FICC Backlog roster, voting participant count) uses
+  // `driverItems`, filtered to whoever had actually joined by then — a
+  // driver added today must not retroactively appear in (or change the
+  // voter count for) an already-ended season. See driversAsOfSeason.
+  const allDriverItems = [...(byType[itemTypes.DRIVER] || [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const driverById = Object.fromEntries(allDriverItems.map((d) => [d.driverId, d]));
 
   const allSeasonItems = (byType[itemTypes.SEASON] || []).map(strip).sort((a, b) => a.seasonNumber - b.seasonNumber);
   const currentSeasonNumber = (one(itemTypes.CURRENTSEASON_POINTER) || {}).seasonNumber ?? allSeasonItems[0]?.seasonNumber ?? 1;
   const seasonNumber = viewedSeason ?? currentSeasonNumber;
   const seasonItem = allSeasonItems.find((s) => s.seasonNumber === seasonNumber) || {};
 
+  const driverItems = driversAsOfSeason(allDriverItems, seasonNumber);
+  const driverIds = driverItems.map((d) => d.driverId);
+
   const pointsTable = seasonItem.pointsTable || [];
-  const raceLabels = seasonItem.raceLabels || [];
+  // Derived from the schedule, not stored separately — otherwise adding or
+  // editing a race in Season & Schedule would silently drift out of sync
+  // with the headers Standings/Race Results actually show (see
+  // buildStandingsRowsForSeason in ranking.js, which sizes each driver's
+  // races the same way).
+  const raceLabels = (seasonItem.schedule || []).map((r) => (r.track ? `Race ${r.race}: ${r.track}` : `Race ${r.race}`));
 
   const upgradeParts = (byType[itemTypes.UPGRADEPART] || []).map(strip).sort((a, b) => a.partNumber - b.partNumber);
   const sponsors = (byType[itemTypes.SPONSOR] || []).map(strip);
@@ -114,6 +129,17 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
     .sort((a, b) => a.position - b.position)
     .map((row) => ({ driverId: row.driverId, driver: row.driver, position: row.position, winnings: winningsByPosition[row.position] ?? null }));
 
+  // Same shape as winningsByPosition/winningsByDriver above — how many
+  // upgrade cards a driver in each finishing position may swap out once
+  // the next season's Upgrade Tracker starts them off with what they held
+  // at the end of this one (see createNextSeason in season.routes.js).
+  const swapLimitByPosition = Object.fromEntries(
+    bySeason(itemTypes.OFFSEASON_SWAPLIMIT, seasonNumber).map((w) => [w.position, w.maxSwaps ?? null])
+  );
+  const swapLimitByDriver = [...standingsRows]
+    .sort((a, b) => a.position - b.position)
+    .map((row) => ({ driverId: row.driverId, driver: row.driver, position: row.position, maxSwaps: swapLimitByPosition[row.position] ?? null }));
+
   // ---- upgrade tracker ----
   const legendItem = one(itemTypes.UPGRADETRACKER_LEGEND) || {};
   const carryoverByDriverId = computeCarryoverByDriver(items, seasonNumber, allSeasonItems);
@@ -123,6 +149,17 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
     const carryover = carryoverByDriverId[driverId] || 0;
     const budget = (seasonItem.baseTeamBudget || 0) + sponsorFunding(sponsors, row.sponsor) + (row.modification || 0) + carryover;
     const spent = (row.upgrades || []).reduce((sum, p) => sum + (p != null ? computeUpgradeCost(upgradeParts, p) : 0), 0);
+    // swapAllowance/carryoverUpgrades are frozen onto this row the moment
+    // the season was created (see createNextSeason in season.routes.js) —
+    // not recomputed live, since they're a snapshot of a fact from the
+    // PRIOR season (what this driver held, and what position they
+    // finished in) rather than something derived from current data.
+    // swapsUsed IS recomputed live, same as everything else here: how many
+    // of those carried-over parts are no longer in the current picks.
+    const swapAllowance = row.swapAllowance ?? null;
+    const swapsUsed = Array.isArray(row.carryoverUpgrades)
+      ? row.carryoverUpgrades.filter((p) => p != null && !(row.upgrades || []).includes(p)).length
+      : 0;
     return {
       driverId,
       driver: driver.driver,
@@ -132,6 +169,12 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
       upgrades: row.upgrades || [],
       modification: row.modification ?? null,
       remainingBudget: budget - spent,
+      swapAllowance,
+      swapsUsed,
+      // Exposed so computeCompliance (below) can tell a retained carryover
+      // part from a freshly-claimed one — see its own comment for why that
+      // distinction matters for priority.
+      carryoverUpgrades: Array.isArray(row.carryoverUpgrades) ? row.carryoverUpgrades : null,
     };
   });
 
@@ -175,7 +218,7 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
   // every viewer (including admin) until an item resolves — see
   // buildVotingView in server/db/voting.js.
   const driverCount = driverIds.length;
-  const votingOpen = !!seasonItem.ended;
+  const votingOpen = !!seasonItem.ended && !seasonItem.offseasonEnded;
   const votingCtx = { driverCount, viewerDriverId, votingOpen };
   // Whoever finished P1 this season holds its one Golden Wrench veto for
   // the resulting off-season — exposed so the client can show the veto
@@ -202,7 +245,7 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
 
   return {
     lore: one(itemTypes.LORE) || {},
-    drivers: driverItems.map((d) => ({
+    drivers: allDriverItems.map((d) => ({
       player: d.player,
       driver: d.driver,
       teamName: d.teamName,
@@ -227,6 +270,7 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
       allowedTiers: seasonItem.allowedTiers || [],
       disallowedTypes: seasonItem.disallowedTypes || [],
       ended: seasonItem.ended || false,
+      offseasonEnded: seasonItem.offseasonEnded || false,
       championDriverId: seasonChampionDriverId,
       vetoUsedBy: seasonItem.vetoUsedBy || null,
     },
@@ -258,7 +302,7 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
       seasonLog: allSeasonItems
         .filter((s) => s.ended)
         .map((s) => {
-          const champId = championDriverId(items, s.seasonNumber, driverItems);
+          const champId = championDriverId(items, s.seasonNumber, driversAsOfSeason(allDriverItems, s.seasonNumber));
           const champ = champId ? driverById[champId] : null;
           return {
             season: s.seasonNumber,
@@ -271,6 +315,7 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
     offSeasonBudget: {
       regulations: (one(itemTypes.OFFSEASON_REGULATIONS) || {}).items || [],
       winningsByDriver,
+      swapLimitByDriver,
     },
     // Not part of the legacy shape, but useful to the client going
     // forward (e.g. building driver-owner-aware UI) without another round

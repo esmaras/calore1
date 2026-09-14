@@ -27,4 +27,17 @@ async function resolveSeason(querySeason) {
   return getCurrentSeasonNumber();
 }
 
-module.exports = { getCurrentSeasonNumber, resolveSeason };
+// A season locks Standings, the Upgrade Tracker, Season config/schedule,
+// and Tech Regs content the moment it ends — voting and the FICC Backlog
+// deliberately stay open through the off-season (see offseasonEndedLock).
+function seasonEndedLock(seasonItem) {
+  return !!seasonItem?.ended;
+}
+
+// The off-season's own close: set by POST /:seasonNumber/close-offseason,
+// this is what finally freezes voting and the FICC Backlog for a season.
+function offseasonEndedLock(seasonItem) {
+  return !!seasonItem?.offseasonEnded;
+}
+
+module.exports = { getCurrentSeasonNumber, resolveSeason, seasonEndedLock, offseasonEndedLock };

@@ -3,6 +3,8 @@ const repo = require("../db/repo");
 const { keys, itemTypes, slugify } = require("../db/keys");
 const { hashPassword, generateTempPassword } = require("../auth/passwords");
 const { renameUser } = require("../auth/users");
+const { getCurrentSeasonNumber } = require("../db/currentSeason");
+const { expandPointsTable } = require("../db/ranking");
 
 // Mounted with requireAdmin already applied at the app level (server/index.js)
 // — everything under /api/admin is admin-only, so no per-route check needed.
@@ -117,6 +119,7 @@ router.post("/drivers", async (req, res) => {
 
   const tempPassword = generateTempPassword();
   const passwordHash = await hashPassword(tempPassword);
+  const joinedSeasonNumber = await getCurrentSeasonNumber();
 
   const driverItem = {
     ...keys.driver(driverId),
@@ -128,6 +131,9 @@ router.post("/drivers", async (req, res) => {
     teamName: teamName || "",
     carColor: cleanColor,
     backstory: backstory || "",
+    // The cutoff assembleData uses to keep this driver out of any season
+    // before this one — see driversAsOfSeason in server/db/ranking.js.
+    joinedSeason: joinedSeasonNumber,
   };
   const userItem = {
     ...keys.user(driverId),
@@ -158,35 +164,77 @@ router.post("/drivers", async (req, res) => {
     throw err;
   }
 
+  // The new driver needs to be scoreable this season — extend the
+  // CURRENT season's points-per-position table to cover the new total
+  // headcount, if it doesn't already (see expandPointsTable). Only while
+  // that season is still active: an ended season's table is locked (see
+  // seasonEndedLock), and rightly so — this new driver isn't part of it.
+  // If the current season has already ended, the next season created
+  // picks up the right-sized table on its own (see createNextSeason in
+  // season.routes.js), so there's nothing to do here in that case.
+  const currentSeasonItem = await repo.getItem(keys.season(joinedSeasonNumber));
+  if (currentSeasonItem && !currentSeasonItem.ended) {
+    const expanded = expandPointsTable(currentSeasonItem.pointsTable, driverItems.length + 1);
+    if (expanded.length !== (currentSeasonItem.pointsTable || []).length) {
+      await repo.updateItem(keys.season(joinedSeasonNumber), { pointsTable: expanded });
+    }
+  }
+
   res.json({ driver: { player: driverItem.player, driver: driverItem.driver, teamName: driverItem.teamName, carColor: cleanColor, backstory: driverItem.backstory, driverId }, username: driverId, tempPassword });
 });
+
+// A driver who's actually raced (a STANDINGS/UPGRADETRACKER/FICC_PROPOSAL
+// row anywhere, any season) can never be hard-deleted — their DRIVER
+// record is exactly what driversAsOfSeason (server/db/ranking.js) joins
+// past seasons' standings/roster/voting against, so removing it would
+// silently erase their row from every season they were ever actually in,
+// including already-ended ones. A driver with zero history (added by
+// mistake, never actually played) has nothing to lose either way, so a
+// real delete is still fine — and still the only way to free up their
+// driverId/username for reuse.
+async function driverHasHistory(all, driverId) {
+  const historicalTypes = [itemTypes.STANDINGS, itemTypes.UPGRADETRACKER, itemTypes.FICC_PROPOSAL];
+  return all.some((i) => historicalTypes.includes(i.itemType) && i.driverId === driverId);
+}
 
 // Deletes the driver's roster entry and their login together — leaving
 // either behind would strand a login nobody can attach to a driver, or a
 // driver nobody can log in as. Also frees their car color claim, if any,
-// so it becomes available to other drivers again. Deliberately does NOT
-// clean up their historical STANDINGS/UPGRADETRACKER/FICC_PROPOSAL rows
-// (per-season, keyed by driverId) — those simply stop appearing anywhere
-// once the DRIVER item is gone (assembleData only ever iterates driverIds
-// from existing DRIVER items), so leaving them is harmless, and deleting
-// them would mean scanning and removing rows across every season.
+// so it becomes available to other drivers again.
 router.delete("/drivers/:driverId", async (req, res) => {
   const { driverId } = req.params;
   const driver = await repo.getItem(keys.driver(driverId));
   if (!driver) return res.status(404).json({ error: "No such driver" });
 
+  const all = await repo.getAll();
+
+  // Retire instead of delete: keeps the DRIVER record (name, team, past
+  // car color/number) intact forever for historical display, but excludes
+  // them from this season and every season after it — see
+  // driversAsOfSeason. Their car color/number claims are released either
+  // way, same as a real delete, so a future driver can take them.
+  if (await driverHasHistory(all, driverId)) {
+    const releases = [];
+    if (driver.carColor) releases.push(repo.deleteItem(keys.carColorClaim(driver.carColor)));
+    if (driver.driverNumber) releases.push(repo.deleteItem(keys.driverNumberClaim(driver.driverNumber)));
+    await Promise.all(releases);
+    const leftSeasonNumber = await getCurrentSeasonNumber();
+    await repo.updateItem(keys.driver(driverId), { leftSeason: leftSeasonNumber });
+    return res.json({ ok: true, retired: true, leftSeason: leftSeasonNumber });
+  }
+
   // The driver's login username isn't necessarily driverId — admins can
   // rename it independently (see PUT /users/:username/username) — so the
   // matching USER item has to be found by its driverId attribute, not by
   // constructing USER#<driverId> and assuming that's still the key.
-  const all = await repo.getAll();
   const userItem = all.find((i) => i.itemType === itemTypes.USER && i.driverId === driverId);
 
   const deletes = [{ Delete: { Key: keys.driver(driverId) } }];
   if (userItem) deletes.push({ Delete: { Key: keys.user(userItem.username) } });
   if (driver.carColor) deletes.push({ Delete: { Key: keys.carColorClaim(driver.carColor) } });
+  if (driver.driverNumber) deletes.push({ Delete: { Key: keys.driverNumberClaim(driver.driverNumber) } });
   await repo.transactWrite(deletes);
-  res.json({ ok: true });
+  res.json({ ok: true, retired: false });
 });
 
 router.post("/users/:username/reset-password", async (req, res) => {

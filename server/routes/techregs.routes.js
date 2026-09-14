@@ -2,7 +2,7 @@ const express = require("express");
 const repo = require("../db/repo");
 const { keys, itemTypes } = require("../db/keys");
 const { requireAdmin } = require("../auth/middleware");
-const { resolveSeason } = require("../db/currentSeason");
+const { resolveSeason, seasonEndedLock } = require("../db/currentSeason");
 const { ensureIds, castVote, castVeto, championDriverId, loadVotingContext, isContentLocked, findLockedContentViolation, mergeVotingState } = require("../db/voting");
 
 const router = express.Router();
@@ -22,6 +22,10 @@ router.put("/", requireAdmin, async (req, res) => {
   const { items } = req.body || {};
   if (!Array.isArray(items)) return res.status(400).json({ error: "items must be an array" });
   const season = await resolveSeason(req.query.season);
+  const seasonItem = await repo.getItem(keys.season(season));
+  if (seasonEndedLock(seasonItem)) {
+    return res.status(400).json({ error: "Technical regulations are locked once the season ends — renewals go through the off-season vote instead" });
+  }
 
   const existing = await repo.getItem(keys.techRegs(season));
   const existingItems = existing?.items || [];

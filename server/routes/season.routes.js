@@ -2,8 +2,9 @@ const express = require("express");
 const repo = require("../db/repo");
 const { keys, itemTypes } = require("../db/keys");
 const { requireAdmin } = require("../auth/middleware");
-const { getCurrentSeasonNumber } = require("../db/currentSeason");
+const { getCurrentSeasonNumber, seasonEndedLock } = require("../db/currentSeason");
 const { assembleData } = require("../db/assemble");
+const { expandPointsTable } = require("../db/ranking");
 
 const router = express.Router();
 
@@ -34,16 +35,22 @@ const DEFAULT_POINTS_TABLE = [
   { position: 8, points: 0 },
 ];
 
-// Admin-only: create a new season. seasonNumber auto-increments (no
-// artificial cap — "unlimited seasons"), computed from whatever seasons
-// already exist rather than tracked separately, so it can't drift out of
-// sync with reality.
-router.post("/", requireAdmin, async (req, res) => {
+// Creates a brand-new season: seasonNumber auto-increments (no artificial
+// cap — "unlimited seasons"), computed from whatever seasons already exist
+// rather than tracked separately, so it can't drift out of sync with
+// reality. Season creation is always manual (the "+ Add season" button,
+// POST / below) — deliberately never an automatic side effect of any
+// off-season lifecycle action, so an admin can't end up with an
+// unexpected extra season they didn't ask for.
+async function createNextSeason({ label }) {
   const all = await repo.getAll();
   const existingSeasons = all.filter((i) => i.itemType === itemTypes.SEASON);
   const nextSeasonNumber = existingSeasons.length ? Math.max(...existingSeasons.map((s) => s.seasonNumber)) + 1 : 1;
+  // Sized to however many drivers actually exist right now, not just the
+  // original 8-row default — a roster that's grown since (see
+  // expandPointsTable) needs every position scoreable from day one.
+  const currentDriverCount = all.filter((i) => i.itemType === itemTypes.DRIVER).length;
 
-  const { label } = req.body || {};
   const item = {
     ...keys.season(nextSeasonNumber),
     itemType: itemTypes.SEASON,
@@ -56,8 +63,7 @@ router.post("/", requireAdmin, async (req, res) => {
     legends: "No",
     baseTeamBudget: 0,
     schedule: [],
-    raceLabels: [],
-    pointsTable: DEFAULT_POINTS_TABLE,
+    pointsTable: expandPointsTable(DEFAULT_POINTS_TABLE, currentDriverCount),
     // Empty means "no restriction" — allowedTiers as an inclusion list,
     // disallowedTypes as an exclusion list, per how admins described
     // wanting to configure each (which tiers ARE in, which types are OUT).
@@ -83,6 +89,49 @@ router.post("/", requireAdmin, async (req, res) => {
     });
   }
 
+  // Off-season catch-up: seed every driver's new-season Upgrade Tracker row
+  // with what they finished the PRIOR season holding, once that season has
+  // actually ended — Standings/the Upgrade Tracker both lock the moment a
+  // season ends (see seasonEndedLock), so "final position"/"final upgrades"
+  // are stable facts by then, not a still-moving target. Applies no matter
+  // which action created this season — a plain "+ Add season" click gets
+  // the same carryover as "End Off-Season & Begin Next Season", since a
+  // driver's baseline shouldn't depend on which button happened to create
+  // the season. carryoverUpgrades is the frozen baseline the swap-count
+  // check in upgrade-tracker.routes.js diffs future edits against;
+  // swapAllowance is this driver's finishing position looked up against
+  // the swap-limit table, likewise frozen so a later edit to that table
+  // can't retroactively change an allowance already in effect. A brand-new
+  // driver with no entry in the prior season gets no carryover and no
+  // limit (both null/empty), i.e. unrestricted, same as before.
+  if (priorSeasonItem?.ended) {
+    const priorAssembled = assembleData(all, priorSeasonNumber);
+    const positionByDriverId = Object.fromEntries(priorAssembled.standings.drivers.map((d) => [d.driverId, d.position]));
+    const swapLimitByPosition = Object.fromEntries(priorAssembled.offSeasonBudget.swapLimitByDriver.map((w) => [w.position, w.maxSwaps]));
+    for (const entry of priorAssembled.upgradeTracker.entries) {
+      const position = positionByDriverId[entry.driverId];
+      // eslint-disable-next-line no-await-in-loop
+      await repo.putItem({
+        ...keys.upgradeTracker(entry.driverId, nextSeasonNumber),
+        itemType: itemTypes.UPGRADETRACKER,
+        driverId: entry.driverId,
+        season: nextSeasonNumber,
+        sponsor: null,
+        upgrades: entry.upgrades,
+        modification: 0,
+        carryoverUpgrades: entry.upgrades,
+        swapAllowance: position != null ? swapLimitByPosition[position] ?? null : null,
+      });
+    }
+  }
+
+  return item;
+}
+
+// Admin-only: create a new season on demand.
+router.post("/", requireAdmin, async (req, res) => {
+  const { label } = req.body || {};
+  const item = await createNextSeason({ label });
   res.json(item);
 });
 
@@ -122,6 +171,31 @@ router.post("/:seasonNumber/end", requireAdmin, async (req, res) => {
   res.json(updated);
 });
 
+// Closes this season's off-season for good: voting and the FICC Backlog
+// (the only things left open once /end locks everything else — see
+// seasonEndedLock) stop accepting writes. This is the one-way door out of
+// the off-season state — a season can otherwise sit there indefinitely
+// while voting/proposals happen.
+//
+// Deliberately does NOT create the next season or touch the current-season
+// pointer — season creation is a separate, always-manual action (POST /,
+// the "+ Add season" button), regardless of off-season state. It doesn't
+// need to happen in any particular order either way: promoteToNextSeason
+// (server/db/voting.js) already parks anything that resolves before the
+// next season exists, applied automatically whenever it's eventually
+// created; and createNextSeason() seeds Upgrade Tracker carryover off
+// whatever the most recently-ended season is, whenever it's called.
+router.post("/:seasonNumber/close-offseason", requireAdmin, async (req, res) => {
+  const seasonNumber = Number(req.params.seasonNumber);
+  const existing = await repo.getItem(keys.season(seasonNumber));
+  if (!existing) return res.status(404).json({ error: "No such season" });
+  if (!existing.ended) return res.status(400).json({ error: "End the season before closing its off-season" });
+  if (existing.offseasonEnded) return res.status(400).json({ error: "This season's off-season has already ended" });
+
+  const updated = await repo.updateItem(keys.season(seasonNumber), { offseasonEnded: true });
+  res.json(updated);
+});
+
 // Reverses /end: the season goes back to "in progress" (its next-season
 // carryover recomputes live again instead of using the frozen snapshot),
 // and FICC/tech-reg voting for its off-season closes again — any votes
@@ -132,18 +206,20 @@ router.post("/:seasonNumber/reopen", requireAdmin, async (req, res) => {
   const existing = await repo.getItem(keys.season(seasonNumber));
   if (!existing) return res.status(404).json({ error: "No such season" });
   if (!existing.ended) return res.status(400).json({ error: "Season is not ended" });
+  if (existing.offseasonEnded) return res.status(400).json({ error: "This season's off-season has already ended — it can't be reopened" });
 
   const updated = await repo.updateItem(keys.season(seasonNumber), { ended: false, endedCarryoverByDriver: [] });
   res.json(updated);
 });
 
 // Partial update, not a whole-item PUT — the SEASON#n item also holds
-// pointsTable/raceLabels, which /api/standings/points-table owns. A
-// full-item overwrite here would silently wipe those out.
+// pointsTable, which /api/standings/points-table owns. A full-item
+// overwrite here would silently wipe that out.
 router.put("/:seasonNumber", requireAdmin, async (req, res) => {
   const seasonNumber = Number(req.params.seasonNumber);
   const existing = await repo.getItem(keys.season(seasonNumber));
   if (!existing) return res.status(404).json({ error: "No such season" });
+  if (seasonEndedLock(existing)) return res.status(400).json({ error: "Season has ended — its configuration is locked" });
 
   const attrs = {};
   for (const field of EDITABLE_FIELDS) {

@@ -34,4 +34,27 @@ router.put("/winnings/:position", requireAdmin, async (req, res) => {
   res.json(item);
 });
 
+// Same shape as /winnings/:position above: one row per finishing position
+// per season (rendered on the Off-Season Budget page), read by
+// createNextSeason (server/routes/season.routes.js) to decide how many
+// upgrade cards a driver finishing in that position may swap out once the
+// next season's Upgrade Tracker starts them off with what they finished
+// this season holding (see the swap-count check in
+// server/routes/upgrade-tracker.routes.js).
+router.put("/swap-limit/:position", requireAdmin, async (req, res) => {
+  const position = Number(req.params.position);
+  const { maxSwaps } = req.body || {};
+  if (!Number.isInteger(position) || position < 1) {
+    return res.status(400).json({ error: "position must be a positive integer" });
+  }
+  if (typeof maxSwaps !== "number" && maxSwaps !== null) {
+    return res.status(400).json({ error: "maxSwaps must be a number or null" });
+  }
+
+  const season = await resolveSeason(req.query.season);
+  const item = { ...keys.offSeasonSwapLimit(position, season), itemType: itemTypes.OFFSEASON_SWAPLIMIT, position, season, maxSwaps };
+  await repo.putItem(item);
+  res.json(item);
+});
+
 module.exports = router;
