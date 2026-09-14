@@ -2303,27 +2303,27 @@ function renderOffSeason(container) {
   panel.appendChild(table);
   container.appendChild(panel);
 
-  // Deterministic, one row per current driver, ordered by this season's
-  // final standing — unlike the freeform trackers below, every driver
-  // always has exactly one row here, so it's unambiguous who gets what.
-  // The winnings amount is tied to the position (w.position), not the
-  // driver occupying it — saveOffseasonWinnings saves by position, so if
-  // standings change later, the amount stays with the position and
-  // reactively follows whoever now holds it. This is what season creation
-  // reads to seed next season's starting budget (see POST /api/season in
+  // One row per finishing POSITION (1..driverCount), not per driver — a
+  // value belongs to "Position N," independent of whoever's there right
+  // now, so it can be set before (or during) the season and won't
+  // reshuffle, duplicate, or go blank when standings change or tie (every
+  // position ties at 1 before any race has a result, for instance).
+  // "Current Projection" is purely informational — who holds that
+  // position right now — and is never what a save targets; only the
+  // position number is. Resolved to an actual driver's budget only once
+  // the season truly ends (see POST /:seasonNumber/end in
   // server/routes/season.routes.js).
   const winPanel = h("div", { class: "panel" });
   winPanel.appendChild(h("h2", {}, "Season-End Winnings"));
   winPanel.appendChild(h("p", { class: "muted panel-note" },
-    "One row per driver, ordered by this season's final standing — winnings are tied to the position, so they follow whoever holds it if standings change. Feeds next season's starting budget when a new season is created."
+    "One row per finishing position, independent of whoever's currently there — \"Current Projection\" is just a preview of who that is right now. Resolved to whoever actually finishes there once the season ends, feeding next season's starting budget."
   ));
   const winTable = h("table");
-  winTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Driver"), h("th", {}, "Winnings"))));
+  winTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Winnings"), h("th", {}, "Current Projection"))));
   const winTbody = h("tbody");
-  DATA.offSeasonBudget.winningsByDriver.forEach((w) => {
+  DATA.offSeasonBudget.winningsTable.forEach((w) => {
     const tr = h("tr");
     tr.appendChild(h("td", { class: "cell-computed " + podiumClass("pos-", w.position) }, String(w.position)));
-    tr.appendChild(h("td", {}, driverBadge(w.driver)));
     const tdWin = h("td");
     if (allowed) {
       tdWin.appendChild(numberInput(w.winnings, (v) => { w.winnings = v; saveOffseasonWinnings(w.position, v); }));
@@ -2331,30 +2331,25 @@ function renderOffSeason(container) {
       tdWin.appendChild(document.createTextNode(typeof w.winnings === "number" ? fmtMoney(w.winnings) : "—"));
     }
     tr.appendChild(tdWin);
+    tr.appendChild(h("td", { class: "muted" }, w.projectedDrivers.length ? w.projectedDrivers.join(" / ") : "—"));
     winTbody.appendChild(tr);
   });
   winTable.appendChild(winTbody);
   winPanel.appendChild(winTable);
   container.appendChild(winPanel);
 
-  // Same shape/purpose as Season-End Winnings above, one row per position:
-  // how many upgrade cards a driver finishing there may swap out once the
-  // next season's Upgrade Tracker starts them off with whatever they held
-  // at the end of this one (see createNextSeason in
-  // server/routes/season.routes.js, which freezes this onto each driver's
-  // new-season row whenever the next season is created).
+  // Same shape/purpose as Season-End Winnings above, one row per position.
   const swapPanel = h("div", { class: "panel" });
   swapPanel.appendChild(h("h2", {}, "Upgrade Swap Allowance"));
   swapPanel.appendChild(h("p", { class: "muted panel-note" },
-    "One row per driver, ordered by this season's final standing — how many upgrade cards that finishing position may swap out next season. Leave blank for no limit. Applied when you begin the next season."
+    "One row per finishing position, independent of whoever's currently there — \"Current Projection\" is just a preview of who that is right now. Leave blank for no limit. Applied to whoever actually finishes there once you begin the next season."
   ));
   const swapTable = h("table");
-  swapTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Driver"), h("th", {}, "Max Swaps"))));
+  swapTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Max Swaps"), h("th", {}, "Current Projection"))));
   const swapTbody = h("tbody");
-  DATA.offSeasonBudget.swapLimitByDriver.forEach((w) => {
+  DATA.offSeasonBudget.swapAllowanceTable.forEach((w) => {
     const tr = h("tr");
     tr.appendChild(h("td", { class: "cell-computed " + podiumClass("pos-", w.position) }, String(w.position)));
-    tr.appendChild(h("td", {}, driverBadge(w.driver)));
     const tdSwap = h("td");
     if (allowed) {
       tdSwap.appendChild(numberInput(w.maxSwaps, (v) => { w.maxSwaps = v; saveSwapLimit(w.position, v); }));
@@ -2362,6 +2357,7 @@ function renderOffSeason(container) {
       tdSwap.appendChild(document.createTextNode(typeof w.maxSwaps === "number" ? String(w.maxSwaps) : "No limit"));
     }
     tr.appendChild(tdSwap);
+    tr.appendChild(h("td", { class: "muted" }, w.projectedDrivers.length ? w.projectedDrivers.join(" / ") : "—"));
     swapTbody.appendChild(tr);
   });
   swapTable.appendChild(swapTbody);

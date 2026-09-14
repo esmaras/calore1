@@ -113,32 +113,40 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
   // ---- standings ----
   const standingsRows = buildStandingsRowsForSeason(items, seasonNumber, driverItems);
 
-  // ---- off-season winnings: one deterministic row per driver, ordered by
-  // this season's final standing (not a freeform admin-typed list), so
-  // it's unambiguous who gets what — and so the next season's creation
-  // (see POST /api/season in season.routes.js) can read it directly to
-  // seed each driver's starting budget carryover. The stored amount is
-  // keyed by position, not driverId (see keys.offSeasonWinnings) — resolved
-  // to "whoever currently holds that position" here, every read, so a
-  // standings correction after the fact reassigns the payout instead of
-  // leaving it stuck on whoever held the position when it was entered.
-  const winningsByPosition = Object.fromEntries(
+  // ---- off-season winnings & upgrade-swap allowance: one row per
+  // POSITION (1..driverCount), not per driver — these are configured
+  // against a finishing position before (or while) the season is still
+  // being decided, so the row itself must stay stable no matter how
+  // standings shift afterward. Building this by mapping over driverItems
+  // instead (as earlier versions did) meant a tie — the default state of
+  // every position before any race has a result — collapsed multiple
+  // drivers onto the same position and showed them duplicate rows with
+  // identical values, and any standings change reshuffled which driver a
+  // value visually sat next to. `projectedDrivers` is the ONLY thing tied
+  // to current standings here — purely informational (rendered as
+  // "Current Projection" on the Off-Season Budget page), never the row's
+  // identity or something a save touches.
+  const positionSlots = Array.from({ length: driverIds.length }, (_, i) => {
+    const position = i + 1;
+    return { position, projectedDrivers: standingsRows.filter((r) => r.position === position).map((r) => r.driver) };
+  });
+  const winningsValueByPosition = Object.fromEntries(
     bySeason(itemTypes.OFFSEASON_WINNINGS, seasonNumber).map((w) => [w.position, w.winnings ?? null])
   );
-  const winningsByDriver = [...standingsRows]
-    .sort((a, b) => a.position - b.position)
-    .map((row) => ({ driverId: row.driverId, driver: row.driver, position: row.position, winnings: winningsByPosition[row.position] ?? null }));
-
-  // Same shape as winningsByPosition/winningsByDriver above — how many
-  // upgrade cards a driver in each finishing position may swap out once
-  // the next season's Upgrade Tracker starts them off with what they held
-  // at the end of this one (see createNextSeason in season.routes.js).
-  const swapLimitByPosition = Object.fromEntries(
+  const winningsTable = positionSlots.map((slot) => ({ ...slot, winnings: winningsValueByPosition[slot.position] ?? null }));
+  const swapAllowanceValueByPosition = Object.fromEntries(
     bySeason(itemTypes.OFFSEASON_SWAPLIMIT, seasonNumber).map((w) => [w.position, w.maxSwaps ?? null])
   );
-  const swapLimitByDriver = [...standingsRows]
+  const swapAllowanceTable = positionSlots.map((slot) => ({ ...slot, maxSwaps: swapAllowanceValueByPosition[slot.position] ?? null }));
+
+  // Driver-keyed shape kept separately, ONLY for computeCarryoverByDriver
+  // (above, via a recursive assembleData call on the prior season) and
+  // POST /:seasonNumber/end — both need "how much does THIS driver's
+  // current position pay," which only makes sense resolved per-driver.
+  // Not meant for display — see winningsTable for that.
+  const winningsByDriver = [...standingsRows]
     .sort((a, b) => a.position - b.position)
-    .map((row) => ({ driverId: row.driverId, driver: row.driver, position: row.position, maxSwaps: swapLimitByPosition[row.position] ?? null }));
+    .map((row) => ({ driverId: row.driverId, driver: row.driver, position: row.position, winnings: winningsValueByPosition[row.position] ?? null }));
 
   // ---- upgrade tracker ----
   const legendItem = one(itemTypes.UPGRADETRACKER_LEGEND) || {};
@@ -314,8 +322,11 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
     },
     offSeasonBudget: {
       regulations: (one(itemTypes.OFFSEASON_REGULATIONS) || {}).items || [],
+      // winningsByDriver is NOT for display (see its own comment above) —
+      // the client renders winningsTable/swapAllowanceTable instead.
       winningsByDriver,
-      swapLimitByDriver,
+      winningsTable,
+      swapAllowanceTable,
     },
     // Not part of the legacy shape, but useful to the client going
     // forward (e.g. building driver-owner-aware UI) without another round

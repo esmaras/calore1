@@ -107,7 +107,7 @@ async function createNextSeason({ label }) {
   if (priorSeasonItem?.ended) {
     const priorAssembled = assembleData(all, priorSeasonNumber);
     const positionByDriverId = Object.fromEntries(priorAssembled.standings.drivers.map((d) => [d.driverId, d.position]));
-    const swapLimitByPosition = Object.fromEntries(priorAssembled.offSeasonBudget.swapLimitByDriver.map((w) => [w.position, w.maxSwaps]));
+    const swapLimitByPosition = Object.fromEntries(priorAssembled.offSeasonBudget.swapAllowanceTable.map((w) => [w.position, w.maxSwaps]));
     for (const entry of priorAssembled.upgradeTracker.entries) {
       const position = positionByDriverId[entry.driverId];
       // eslint-disable-next-line no-await-in-loop
