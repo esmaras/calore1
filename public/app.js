@@ -2313,13 +2313,16 @@ function renderOffSeason(container) {
   // position number is. Resolved to an actual driver's budget only once
   // the season truly ends (see POST /:seasonNumber/end in
   // server/routes/season.routes.js).
+  const winPosLabel = DATA.season.ended ? "Final Standings" : "Current Projection";
   const winPanel = h("div", { class: "panel" });
   winPanel.appendChild(h("h2", {}, "Season-End Winnings"));
   winPanel.appendChild(h("p", { class: "muted panel-note" },
-    "One row per finishing position, independent of whoever's currently there — \"Current Projection\" is just a preview of who that is right now. Resolved to whoever actually finishes there once the season ends, feeding next season's starting budget."
+    DATA.season.ended
+      ? "One row per finishing position, independent of whoever's currently there — \"Final Standings\" shows who actually finished there once the season ended, feeding next season's starting budget."
+      : "One row per finishing position, independent of whoever's currently there — \"Current Projection\" is just a preview of who that is right now. Resolved to whoever actually finishes there once the season ends, feeding next season's starting budget."
   ));
   const winTable = h("table");
-  winTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Winnings"), h("th", {}, "Current Projection"))));
+  winTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Winnings"), h("th", {}, winPosLabel))));
   const winTbody = h("tbody");
   DATA.offSeasonBudget.winningsTable.forEach((w) => {
     const tr = h("tr");
@@ -2342,10 +2345,12 @@ function renderOffSeason(container) {
   const swapPanel = h("div", { class: "panel" });
   swapPanel.appendChild(h("h2", {}, "Upgrade Swap Allowance"));
   swapPanel.appendChild(h("p", { class: "muted panel-note" },
-    "One row per finishing position, independent of whoever's currently there — \"Current Projection\" is just a preview of who that is right now. Leave blank for no limit. Applied to whoever actually finishes there once you begin the next season."
+    DATA.season.ended
+      ? "One row per finishing position, independent of whoever's currently there — \"Final Standings\" shows who actually finished there once the season ended. Leave blank for no limit. Applied to whoever actually finishes there once you begin the next season."
+      : "One row per finishing position, independent of whoever's currently there — \"Current Projection\" is just a preview of who that is right now. Leave blank for no limit. Applied to whoever actually finishes there once you begin the next season."
   ));
   const swapTable = h("table");
-  swapTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Max Swaps"), h("th", {}, "Current Projection"))));
+  swapTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Max Swaps"), h("th", {}, winPosLabel))));
   const swapTbody = h("tbody");
   DATA.offSeasonBudget.swapAllowanceTable.forEach((w) => {
     const tr = h("tr");
