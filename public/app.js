@@ -563,6 +563,15 @@ function saveFiccFreeform() {
   scheduleSave("ficc-freeform", () => apiPut(`/api/ficc/proposals/freeform${seasonQuery()}`, { items: freeform }));
 }
 
+// Admin-only override: wipes a driver-linked proposal's content and votes
+// even after voting has started, so the driver can submit a fresh
+// proposal. Unlike the debounced saves above, this is a discrete
+// destructive action — fires immediately, and the caller drives its own
+// confirm/error handling (see renderFiccBacklog).
+function resetFiccProposal(driverId) {
+  return apiPost(`/api/ficc/proposals/${driverId}/reset${seasonQuery()}`);
+}
+
 // ---------- Voting (FICC proposals + technical regulations) ----------
 // Unlike the debounced scheduleSave() saves above, a vote/veto is a single
 // discrete action, not a text field losing focus — it fires immediately,
@@ -2141,7 +2150,7 @@ function renderSeason(container) {
 function renderTechRegs(container) {
   const allowed = isAdmin() && !DATA.season.ended;
   const panel = h("div", { class: "panel" });
-  const heading = h("div", { style: "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;" }, h("h2", {}, "1961 Technical Regulations"));
+  const heading = h("div", { style: "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;" }, h("h2", {}, `${DATA.season.label} Technical Regulations`));
   const votingEntries = DATA.technicalRegulations.map((r) => ({ id: r.id, castVoteFn: castTechRegVote }));
   const pendingCount = votingEntries.filter(({ id }) => pendingVoteSelections.has(id)).length;
   if (CURRENT_USER?.driverId) {
@@ -2256,10 +2265,29 @@ function renderFiccBacklog(container) {
         : buildVotingTd(p, vetoEligible, castFiccFreeformVote, castFiccFreeformVeto, "id")
     );
     const tdDel = h("td");
-    if (!isDriverRow && isAdmin() && !isVotingLocked(p.voting) && !DATA.season.offseasonEnded) {
+    if (!isDriverRow && isAdmin() && !DATA.season.offseasonEnded) {
       const b = h("button", { class: "btn small" }, "✕");
       b.addEventListener("click", () => { DATA.ficcBacklog.proposals.splice(i, 1); saveFiccFreeform(); renderActive(); });
       tdDel.appendChild(b);
+    } else if (isDriverRow && isAdmin() && !DATA.season.offseasonEnded && isVotingLocked(p.voting) && hasProposal) {
+      // The row's own text fields are locked once voting starts (see
+      // rowAllowed above) — this is the admin's only way back in: wipe the
+      // proposal and its votes so the driver can write a new one.
+      const clearBtn = h("button", { class: "btn small" }, "Clear");
+      clearBtn.addEventListener("click", async () => {
+        if (!window.confirm(
+          `Clear ${p.driverName || "this driver"}'s proposal? This erases the votes already cast on it so they can submit a new one.`
+        )) return;
+        clearBtn.disabled = true;
+        try {
+          await resetFiccProposal(p.driverId);
+          await refreshData();
+        } catch (err) {
+          showErrorBanner("Could not clear proposal", err.message);
+          clearBtn.disabled = false;
+        }
+      });
+      tdDel.appendChild(clearBtn);
     }
     tr.appendChild(tdDel);
     tbody.appendChild(tr);

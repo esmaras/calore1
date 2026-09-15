@@ -56,12 +56,26 @@ router.put("/proposals/freeform", requireAdmin, async (req, res) => {
   if (!Array.isArray(items)) return res.status(400).json({ error: "items must be an array" });
   const season = await resolveSeason(req.query.season);
 
-  const existing = await repo.getItem(keys.ficcProposalFreeform(season));
+  const [existing, seasonItem] = await Promise.all([
+    repo.getItem(keys.ficcProposalFreeform(season)),
+    repo.getItem(keys.season(season)),
+  ]);
   const existingItems = existing?.items || [];
   const withIds = ensureIds(items);
 
-  const violation = findLockedContentViolation(existingItems, withIds, PROPOSAL_CONTENT_FIELDS);
-  if (violation) return res.status(400).json({ error: "A proposal with votes already cast can't have its content changed" });
+  // Admins can delete a proposal even after voting has started, as long as
+  // the off-season is still open — but can't edit its content once locked,
+  // and can't delete it either once the off-season has closed (see
+  // findLockedContentViolation).
+  const allowDelete = !seasonItem?.offseasonEnded;
+  const violation = findLockedContentViolation(existingItems, withIds, PROPOSAL_CONTENT_FIELDS, { allowDelete });
+  if (violation) {
+    const deleted = !withIds.some((i) => i.id === violation);
+    const error = deleted
+      ? "This off-season has closed — proposals with votes cast can no longer be deleted"
+      : "A proposal with votes already cast can't have its content changed";
+    return res.status(400).json({ error });
+  }
 
   const item = {
     ...keys.ficcProposalFreeform(season),
@@ -77,7 +91,10 @@ router.put("/proposals/freeform", requireAdmin, async (req, res) => {
 // as their Drivers-tab record. A partial update (not a full-item put) so
 // this never has to touch votes/vetoed/promoted at all — those just stay
 // whatever they already were. Locked (see isContentLocked) once a vote's
-// been cast, same rule as the freeform list above.
+// been cast, same rule as the freeform list above. Admins get their own
+// escape hatch for a locked row — see /reset below — rather than a bypass
+// here, so a lock can only ever be lifted by deliberately wiping the vote
+// record, never edited around by accident.
 router.put("/proposals/:driverId", requireSelfOrAdmin("driverId"), async (req, res) => {
   const { driverId } = req.params;
   const driver = await repo.getItem(keys.driver(driverId));
@@ -96,6 +113,37 @@ router.put("/proposals/:driverId", requireSelfOrAdmin("driverId"), async (req, r
     season,
     regulationName: regulationName ?? null,
     explanation: explanation ?? null,
+  });
+  res.json(updated);
+});
+
+// Admin override: wipes a driver-linked proposal's content AND its votes,
+// even if the proposal is locked — the point is to let a driver rewrite
+// their proposal after voting has already started on the old text, and
+// leaving the old votes attached to new content would misrepresent what
+// people actually voted on. Same off-season window as everything else in
+// this file (deleting a freeform proposal, editing a fresh proposal): once
+// offseasonEnded, this closes too.
+router.post("/proposals/:driverId/reset", requireAdmin, async (req, res) => {
+  const { driverId } = req.params;
+  const driver = await repo.getItem(keys.driver(driverId));
+  if (!driver) return res.status(404).json({ error: "No such driver" });
+
+  const season = await resolveSeason(req.query.season);
+  const seasonItem = await repo.getItem(keys.season(season));
+  if (seasonItem?.offseasonEnded) {
+    return res.status(400).json({ error: "This off-season has closed — proposals can no longer be reset" });
+  }
+
+  const updated = await repo.updateItem(keys.ficcProposal(driverId, season), {
+    itemType: itemTypes.FICC_PROPOSAL,
+    driverId,
+    season,
+    regulationName: null,
+    explanation: null,
+    votes: {},
+    vetoed: false,
+    promoted: null,
   });
   res.json(updated);
 });

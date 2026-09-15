@@ -29,12 +29,19 @@ function isContentLocked(item) {
 // Callers should reject the whole save on a violation rather than
 // silently dropping just that row — simpler and safer than partial
 // acceptance.
-function findLockedContentViolation(oldItems, newItems, fields) {
+// `allowDelete` lets a caller permit the "missing entirely" case (an admin
+// deleting a proposal, as opposed to editing its content) while still
+// locking content changes — used for FICC freeform proposals, which admins
+// can delete mid-vote as long as the off-season hasn't closed yet.
+function findLockedContentViolation(oldItems, newItems, fields, { allowDelete = false } = {}) {
   const newById = Object.fromEntries((newItems || []).map((i) => [i.id, i]));
   for (const prev of oldItems || []) {
     if (!isContentLocked(prev)) continue;
     const next = newById[prev.id];
-    if (!next) return prev.id;
+    if (!next) {
+      if (allowDelete) continue;
+      return prev.id;
+    }
     if (fields.some((f) => (prev[f] ?? null) !== (next[f] ?? null))) return prev.id;
   }
   return null;
