@@ -341,6 +341,12 @@ tr.upgrade-row.open .upgrade-row-toggle span {
   background: var(--bg-panel-2);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
 }
+/* Track card art is shot 3:2 landscape, not the portrait crop above — a
+   wide/short box instead of a tall/narrow one, everything else the same. */
+.upgrade-card-thumb.upgrade-card-thumb-landscape {
+  width: 132px;
+  height: 88px;
+}
 /* Always position:fixed and always a direct child of <body> (appended
    there by attachZoomCard) — never nested inside the trigger, so it's
    never subject to an ancestor's overflow clipping (e.g. the Upgrade
@@ -372,6 +378,12 @@ tr.upgrade-row.open .upgrade-row-toggle span {
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--bg-panel-2);
+}
+/* Landscape popup gets a wider base width than the portrait one above —
+   at the same 84px width a 3:2 image would render short and look small
+   next to the portrait cards' popups once both are scaled up 3x. */
+.upgrade-card-zoom-wrap-landscape img {
+  width: 168px;
 }
 /* The gradient ring — same red/orange diagonal as the bento cards' hover
    border on the home page (see .bento-card:not(.expanded)::before) — as a
@@ -507,11 +519,73 @@ tr.upgrade-row.open .upgrade-row-toggle span {
 .pos-ref-other:hover { background: #3787b8; }
 
 /* ---------- Race Results ---------- */
+.race-result-block {
+  position: relative;
+}
 .race-result-block h3 {
   margin: 0 0 12px;
   font-size: 1rem;
 }
+.race-result-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Keeps the title clear of the corner thumbnail overlapping it — only
+   applied when there is one (see the .has-track-thumb class added in
+   buildRaceResultBlock) so a race with no matched track art doesn't carry
+   dead space on the right for nothing. */
+.race-result-block.has-track-thumb .race-result-title {
+  padding-right: 148px;
+}
+/* Absolutely positioned, deliberately overlapping down over the title and
+   into the podium row below it rather than reserving its own full-height
+   row alongside the title — keeps the block's overall height close to
+   what the results alone need instead of every block growing to fit the
+   thumbnail. Podium items are free to render underneath it; that overlap
+   is the point (see the request that prompted this — compacting the
+   block's header). */
+.race-track-thumb-corner {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
+  margin-top: 0;
+}
 .race-results-summary .race-result-block + .race-result-block { margin-top: 18px; }
+
+/* Track flag badge — raised/embossed so it reads as a small physical
+   plaque rather than a flat icon: an outer drop shadow for lift, inset
+   highlights/shadows on each edge for the bevel, and a glossy top-to-
+   bottom sheen overlay for the curved-plastic look. */
+.flag-badge {
+  display: inline-flex;
+  flex: none;
+  width: 30px;
+  height: 20px;
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+  box-shadow:
+    0 2px 3px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -2px 2px rgba(0, 0, 0, 0.4),
+    inset 1px 0 0 rgba(255, 255, 255, 0.25),
+    inset -1px 0 0 rgba(0, 0, 0, 0.3);
+}
+.flag-badge svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.flag-badge::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.2) 100%);
+  pointer-events: none;
+}
 
 .race-podium {
   display: flex;

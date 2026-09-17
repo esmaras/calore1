@@ -929,6 +929,62 @@ function renderStandings(container) {
 }
 
 // ---------- Race Results (read-only, race-by-race view of Standings' data) ----------
+// Track flags — hand-authored inline SVGs (viewBox 0 0 60 40, 3:2) keyed by
+// lowercased track name, since track is free-text on the season schedule
+// (no Track model/enum to key off elsewhere — see server/db/assemble.js).
+// Built once at load; the USA flag is generated rather than hand-written
+// since 13 stripes + a star grid don't fit cleanly as a literal string.
+const FLAG_SVGS = (() => {
+  const usaStripes = Array.from({ length: 13 }, (_, i) => {
+    const h = 40 / 13;
+    return `<rect y="${(i * h).toFixed(3)}" width="60" height="${(h + 0.05).toFixed(3)}" fill="${i % 2 === 0 ? "#B22234" : "#fff"}"/>`;
+  }).join("");
+  const cantonH = Math.ceil(13 / 2) * (40 / 13);
+  const stars = [];
+  const cols = 5, rows = 4, padX = 3, padY = 2.5;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cx = padX + (c * (24 - 2 * padX)) / (cols - 1);
+      const cy = padY + (r * (cantonH - 2 * padY)) / (rows - 1);
+      stars.push(`<circle cx="${cx.toFixed(2)}" cy="${cy.toFixed(2)}" r="0.9" fill="#fff"/>`);
+    }
+  }
+  return {
+    japan: `<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><rect width="60" height="40" fill="#fff"/><circle cx="30" cy="20" r="12" fill="#bc002d"/></svg>`,
+    mexico: `<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><rect x="0" width="20" height="40" fill="#006341"/><rect x="20" width="20" height="40" fill="#fff"/><rect x="40" width="20" height="40" fill="#ce1126"/></svg>`,
+    netherlands: `<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><rect y="0" width="60" height="13.333" fill="#ae1c28"/><rect y="13.333" width="60" height="13.334" fill="#fff"/><rect y="26.667" width="60" height="13.333" fill="#21468b"/></svg>`,
+    france: `<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><rect x="0" width="20" height="40" fill="#0055a4"/><rect x="20" width="20" height="40" fill="#fff"/><rect x="40" width="20" height="40" fill="#ef4135"/></svg>`,
+    italy: `<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><rect x="0" width="20" height="40" fill="#008c45"/><rect x="20" width="20" height="40" fill="#fff"/><rect x="40" width="20" height="40" fill="#cd212a"/></svg>`,
+    uk: `<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><clipPath id="gbclip"><rect width="60" height="40"/></clipPath><g clip-path="url(#gbclip)"><rect width="60" height="40" fill="#00247d"/><path d="M0,0 L60,40 M60,0 L0,40" stroke="#fff" stroke-width="9"/><path d="M0,0 L60,40 M60,0 L0,40" stroke="#cf142b" stroke-width="4"/><path d="M30,0 V40 M0,20 H60" stroke="#fff" stroke-width="15"/><path d="M30,0 V40 M0,20 H60" stroke="#cf142b" stroke-width="9"/></g></svg>`,
+    usa: `<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg">${usaStripes}<rect width="24" height="${cantonH.toFixed(3)}" fill="#3c3b6e"/>${stars.join("")}</svg>`,
+    germany: `<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><rect y="0" width="60" height="13.333" fill="#000"/><rect y="13.333" width="60" height="13.334" fill="#dd0000"/><rect y="26.667" width="60" height="13.333" fill="#ffce00"/></svg>`,
+    spain: `<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><rect y="0" width="60" height="10" fill="#aa151b"/><rect y="10" width="60" height="20" fill="#f1bf00"/><rect y="30" width="60" height="10" fill="#aa151b"/></svg>`,
+    "south africa": `<svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg"><rect y="0" width="60" height="20" fill="#de3831"/><rect y="20" width="60" height="20" fill="#001489"/><path d="M0,0 L24,20 L0,40 M24,20 L60,20" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><path d="M0,0 L24,20 L0,40 M24,20 L60,20" fill="none" stroke="#007749" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M0,0 L24,20 L0,40" fill="none" stroke="#ffb612" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><polygon points="0,0 0,40 19,20" fill="#000"/></svg>`,
+  };
+})();
+// A few obvious aliases in case a track is ever typed out longhand.
+FLAG_SVGS["united kingdom"] = FLAG_SVGS.uk;
+FLAG_SVGS["great britain"] = FLAG_SVGS.uk;
+FLAG_SVGS["united states"] = FLAG_SVGS.usa;
+FLAG_SVGS["united states of america"] = FLAG_SVGS.usa;
+
+// Race labels are assembled server-side as `Race ${n}: ${track}` (see
+// server/db/assemble.js) — pull the track back out of that string since
+// there's no separate track field passed down to the client here.
+function trackFromRaceLabel(label) {
+  if (!label) return null;
+  const idx = label.indexOf(": ");
+  return idx === -1 ? null : label.slice(idx + 2).trim();
+}
+
+function flagBadge(trackName) {
+  const svg = trackName ? FLAG_SVGS[trackName.toLowerCase()] : null;
+  if (!svg) return null;
+  const badge = h("span", { class: "flag-badge", title: trackName });
+  badge.innerHTML = svg;
+  return badge;
+}
+
 // Builds one race's finishing order, podium (top 3) visually separated
 // from the rest of the field. Shared by the full tab and the Home bento
 // card so both stay in sync with a single layout.
@@ -938,8 +994,19 @@ function buildRaceResultBlock(label, raceIndex) {
     .map((d) => ({ driver: d.driver, pos: d.races[raceIndex] }))
     .sort((a, b) => a.pos - b.pos);
 
+  const trackName = trackFromRaceLabel(label);
   const block = h("div", { class: "race-result-block" });
-  block.appendChild(h("h3", {}, label));
+  block.appendChild(h("h3", { class: "race-result-title" }, flagBadge(trackName), label));
+  // Absolutely positioned (see .race-track-thumb-corner) rather than laid
+  // out alongside the title, so it overlaps down over the title/podium
+  // instead of reserving its own full-height row — keeps the block compact
+  // instead of every block growing to fit the thumbnail's height.
+  const trackThumb = buildCardThumb(trackCardImagePath(trackName), trackName ? `${trackName} track` : "Track", true);
+  if (trackThumb) {
+    trackThumb.classList.add("race-track-thumb-corner");
+    block.classList.add("has-track-thumb");
+    block.appendChild(trackThumb);
+  }
   if (finishers.length === 0) {
     block.appendChild(h("p", { class: "muted" }, "No results yet."));
     return block;
@@ -1329,12 +1396,17 @@ document.addEventListener("click", dismissZoomAndSwallow, true);
 // broken image when there's no image path at all (e.g. a sponsor with no
 // mapped card art — see sponsorCardImagePath) — callers skip the whole
 // card-art wrapper in that case rather than showing an empty one.
-function buildCardThumb(imageSrc, altText) {
+// `landscape` (default false) is for track card art — those are shot 3:2
+// wide rather than the upgrade/sponsor cards' tall portrait crop, so both
+// the always-visible thumbnail and the zoomed popup need a wide box
+// instead of a tall one (see the *-landscape rules in style.css).
+function buildCardThumb(imageSrc, altText, landscape = false) {
   if (!imageSrc) return null;
-  const thumb = h("img", { class: "upgrade-card-thumb", src: imageSrc, alt: altText, loading: "lazy" });
+  const thumbClass = "upgrade-card-thumb" + (landscape ? " upgrade-card-thumb-landscape" : "");
+  const thumb = h("img", { class: thumbClass, src: imageSrc, alt: altText, loading: "lazy" });
   thumb.addEventListener("error", () => { thumb.style.display = "none"; });
   const thumbTrigger = h("div", { class: "upgrade-card-thumb-trigger" }, thumb);
-  attachZoomCard(thumbTrigger, imageSrc, altText);
+  attachZoomCard(thumbTrigger, imageSrc, altText, landscape);
   return thumbTrigger;
 }
 
@@ -1350,11 +1422,12 @@ function buildCardThumb(imageSrc, altText) {
 // the topbar there. Being a direct child of <body> sidesteps that
 // entirely. Shown/hidden and positioned purely via JS as a result (no
 // CSS :hover needed for it at all).
-function attachZoomCard(triggerEl, imageSrc, altText) {
+function attachZoomCard(triggerEl, imageSrc, altText, landscape = false) {
   triggerEl.classList.add("upgrade-zoom-trigger");
   const img = h("img", { src: imageSrc, alt: altText, loading: "lazy" });
   img.addEventListener("error", () => { img.style.display = "none"; });
-  const zoomWrap = h("div", { class: "upgrade-card-zoom-wrap" }, img);
+  const zoomWrapClass = "upgrade-card-zoom-wrap" + (landscape ? " upgrade-card-zoom-wrap-landscape" : "");
+  const zoomWrap = h("div", { class: zoomWrapClass }, img);
   document.body.appendChild(zoomWrap);
 
   // Centers the popup on the trigger's actual on-screen box, computed
@@ -1683,7 +1756,7 @@ const invSort = { key: null, dir: 1 };
 const TIER_RANK = { S: 0, A: 1, B: 2, C: 3, D: 4, F: 5 };
 
 function partCardImagePath(partNumber) {
-  return `/images/cards/${partNumber}_cropped.png`;
+  return `/images/cards/upgrades/${partNumber}_cropped.png`;
 }
 
 // Unlike upgrade parts (whose card art is filed by partNumber — a stable
@@ -1710,7 +1783,31 @@ const SPONSOR_CARD_IMAGE_SLUGS = {
 };
 function sponsorCardImagePath(sponsorName) {
   const slug = SPONSOR_CARD_IMAGE_SLUGS[sponsorName];
-  return slug ? `/images/cards/${slug}_cropped.png` : null;
+  return slug ? `/images/cards/sponsors/${slug}_cropped.png` : null;
+}
+
+// Track card art — filed by a hand-picked slug per country (not the same
+// lowercased-name lookup as FLAG_SVGS above, since "great_britain" and
+// "south_africa" are the actual filenames on disk, not "uk"/"south africa").
+const TRACK_CARD_IMAGE_SLUGS = {
+  japan: "japan",
+  mexico: "mexico",
+  netherlands: "netherlands",
+  france: "france",
+  italy: "italy",
+  uk: "great_britain",
+  "united kingdom": "great_britain",
+  "great britain": "great_britain",
+  usa: "usa",
+  "united states": "usa",
+  "united states of america": "usa",
+  germany: "germany",
+  spain: "spain",
+  "south africa": "south_africa",
+};
+function trackCardImagePath(trackName) {
+  const slug = trackName ? TRACK_CARD_IMAGE_SLUGS[trackName.trim().toLowerCase()] : null;
+  return slug ? `/images/cards/tracks/${slug}.png` : null;
 }
 
 function invSortedRows(rows) {
@@ -2112,13 +2209,38 @@ function renderSeason(container) {
   const panel2 = h("div", { class: "panel" });
   panel2.appendChild(h("h2", {}, "Race Schedule"));
   const table = h("table");
-  table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Race #"), h("th", {}, "Track"), h("th", {}, ""))));
+  table.appendChild(h("thead", {}, h("tr", {}, h("th", { class: "upgrade-row-toggle-col" }), h("th", {}, "Race #"), h("th", {}, "Track"), h("th", {}, ""))));
   const tbody = h("tbody");
+  // Track cell holds the name (input or plain text) plus that track's card
+  // art, collapsed to zero height until the row's hovered/tapped — the
+  // exact same .upgrade-cell/.upgrade-cell-card-wrap pattern the Upgrade
+  // Tracker page uses for its sponsor/upgrade cells (see renderUpgradeTracker).
+  const buildTrackCell = (track, nameEl) => {
+    const cell = h("div", { class: "upgrade-cell" }, nameEl);
+    const thumbTrigger = buildCardThumb(trackCardImagePath(track), `${track} track`, true);
+    if (thumbTrigger) {
+      const cardInner = h("div", { class: "upgrade-cell-card-inner" }, thumbTrigger, h("div", { class: "upgrade-card-label" }, track));
+      cell.appendChild(h("div", { class: "upgrade-cell-card-wrap" }, cardInner));
+    }
+    return cell;
+  };
   s.schedule.forEach((r, i) => {
-    const tr = h("tr");
+    const tr = h("tr", { class: "upgrade-row" });
+    const toggleRow = () => {
+      tr.classList.toggle("open");
+      closeAllZoomWraps(null);
+    };
+    tr.addEventListener("click", (ev) => {
+      if (ev.target.closest("select, input, button, a, .upgrade-zoom-trigger")) return;
+      toggleRow();
+    });
+    const toggleBtn = h("button", { class: "upgrade-row-toggle", type: "button", "aria-label": "Toggle track card" }, h("span", {}, "▸"));
+    toggleBtn.addEventListener("click", (ev) => { ev.stopPropagation(); toggleRow(); });
+    tr.appendChild(h("td", { class: "upgrade-row-toggle-col" }, toggleBtn));
     if (configEditable) {
       const tdNum = h("td"); tdNum.appendChild(numberInput(r.race, (v) => { r.race = v; saveSeasonField({ schedule: s.schedule }); }));
-      const tdTrack = h("td"); tdTrack.appendChild(textInput(r.track, (v) => { r.track = v; saveSeasonField({ schedule: s.schedule }); }));
+      const tdTrack = h("td");
+      tdTrack.appendChild(buildTrackCell(r.track, textInput(r.track, (v) => { r.track = v; saveSeasonField({ schedule: s.schedule }); renderActive(); })));
       const tdDel = h("td");
       const delBtn = h("button", { class: "btn small" }, "✕");
       delBtn.addEventListener("click", () => { s.schedule.splice(i, 1); saveSeasonField({ schedule: s.schedule }); renderActive(); });
@@ -2126,7 +2248,9 @@ function renderSeason(container) {
       tr.appendChild(tdNum); tr.appendChild(tdTrack); tr.appendChild(tdDel);
     } else {
       tr.appendChild(h("td", {}, String(r.race)));
-      tr.appendChild(h("td", {}, r.track));
+      const tdTrack = h("td");
+      tdTrack.appendChild(buildTrackCell(r.track, h("div", { style: "white-space: nowrap;" }, r.track)));
+      tr.appendChild(tdTrack);
       tr.appendChild(h("td", {}));
     }
     tbody.appendChild(tr);
