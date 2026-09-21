@@ -321,9 +321,19 @@ function driverIndicator(driver) {
 // Plain-text driver name with an indicator (color dot, or a number badge
 // if that driver has set one) — used wherever the name is derived/
 // read-only (Standings, Upgrade Tracker, the fixed FICC proposal rows).
-function driverBadge(name) {
+// `identity` is the indicator's source of truth when given (a season-
+// scoped row already carrying its own driverNumber/numberFont/
+// numberBgShape/numberBgColor/carColor — see driverIndicatorFields in
+// server/db/assemble.js) — pass it whenever the caller has one, since
+// once a season has ended those fields are frozen as of that season (see
+// driverIdentityResolver) and re-deriving them here via a live DATA.drivers
+// lookup by name would both silently defeat that freeze and, for a
+// renamed driver, simply fail to match at all. Falls back to a live
+// name-matched lookup only when there's no such row (freeform FICC
+// proposals, which aren't tied to a real driver record).
+function driverBadge(name, identity) {
   const span = h("span", { style: "display:inline-flex; align-items:center; gap:6px;" });
-  const d = DATA.drivers.find((d) => d.driver === name);
+  const d = identity || DATA.drivers.find((d) => d.driver === name);
   span.appendChild(driverIndicator(d));
   span.appendChild(document.createTextNode(name || ""));
   return span;
@@ -837,12 +847,32 @@ function compareRaceHistory(racesA, racesB) {
   return 0;
 }
 
+// Copies a driver's live-editable visual identity (name, team, number/
+// badge styling, car color) from the live roster onto a season-scoped
+// row — callers only do this while the season being viewed is still
+// open, so a same-session edit on the Drivers tab shows up instantly
+// elsewhere without waiting on a full refetch. Once a season has ended,
+// the server has already frozen each driver's identity as of that moment
+// (see driverIdentityResolver in server/db/assemble.js) specifically so
+// a LATER edit can't retroactively rewrite that now-final season's
+// record — callers must skip calling this at all once DATA.season.ended,
+// rather than let a live copy silently undo the freeze.
+function syncLiveDriverIdentity(row, liveDriver, { nameField = "driver", teamField = null } = {}) {
+  if (!liveDriver) return;
+  row[nameField] = liveDriver.driver ?? row[nameField];
+  if (teamField) row[teamField] = liveDriver.teamName ?? row[teamField];
+  row.driverNumber = liveDriver.driverNumber ?? null;
+  row.numberFont = liveDriver.numberFont ?? null;
+  row.numberBgShape = liveDriver.numberBgShape ?? null;
+  row.numberBgColor = liveDriver.numberBgColor ?? null;
+  row.carColor = liveDriver.carColor ?? null;
+}
+
 function recomputeStandings() {
   const lookup = {};
   for (const p of DATA.standings.pointsTable) lookup[p.position] = p.points;
   DATA.standings.drivers.forEach((d, i) => {
-    d.driver = DATA.drivers[i]?.driver ?? d.driver;
-    d.team = DATA.drivers[i]?.teamName ?? d.team;
+    if (!DATA.season.ended) syncLiveDriverIdentity(d, DATA.drivers[i], { teamField: "team" });
     let total = 0;
     for (const pos of d.races) {
       if (pos != null && lookup[pos] != null) total += lookup[pos];
@@ -885,7 +915,7 @@ function renderStandings(container) {
   const sortedDrivers = [...DATA.standings.drivers].sort((a, b) => a.position - b.position);
   for (const d of sortedDrivers) {
     const tr = h("tr");
-    tr.appendChild(h("td", {}, driverBadge(d.driver)));
+    tr.appendChild(h("td", {}, driverBadge(d.driver, d)));
     tr.appendChild(h("td", {}, d.team));
     d.races.forEach((val, i) => {
       const td = h("td");
@@ -996,7 +1026,11 @@ function flagBadge(trackName) {
 function buildRaceResultBlock(label, raceIndex) {
   const finishers = DATA.standings.drivers
     .filter((d) => d.races[raceIndex] != null)
-    .map((d) => ({ driver: d.driver, pos: d.races[raceIndex] }))
+    // Carries the whole standings row through (driverNumber/numberFont/etc
+    // included) rather than just { driver, pos } — driverBadge below needs
+    // it as the indicator's source of truth so a past season's frozen
+    // identity renders correctly instead of falling back to a live lookup.
+    .map((d) => ({ ...d, pos: d.races[raceIndex] }))
     .sort((a, b) => a.pos - b.pos);
 
   const trackName = trackFromRaceLabel(label);
@@ -1025,7 +1059,7 @@ function buildRaceResultBlock(label, raceIndex) {
     podiumRow.appendChild(
       h("div", { class: "race-podium-item" },
         h("span", { class: "race-podium-rank " + podiumClass("pos-", f.pos) }, ordinal(f.pos)),
-        driverBadge(f.driver))
+        driverBadge(f.driver, f))
     );
   });
   block.appendChild(podiumRow);
@@ -1034,7 +1068,7 @@ function buildRaceResultBlock(label, raceIndex) {
     const list = h("div", { class: "race-field-list" });
     rest.forEach((f) => {
       list.appendChild(
-        h("div", { class: "race-field-row" }, h("span", { class: "race-field-pos" }, ordinal(f.pos)), driverBadge(f.driver))
+        h("div", { class: "race-field-row" }, h("span", { class: "race-field-pos" }, ordinal(f.pos)), driverBadge(f.driver, f))
       );
     });
     block.appendChild(list);
@@ -1495,7 +1529,10 @@ function computeSponsorFunding(sponsorName) {
 // round-trip returns.)
 function recomputeUpgradeTracker() {
   DATA.upgradeTracker.entries.forEach((e, i) => {
-    e.driver = DATA.drivers[i]?.driver ?? e.driver;
+    // Same "only while the season is still open" rule as syncLiveDriverIdentity
+    // above — once ended, the server's frozen identity must win over a
+    // same-session live edit.
+    if (!DATA.season.ended) syncLiveDriverIdentity(e, DATA.drivers[i]);
     // e.carryover itself is never recomputed client-side — it's whatever
     // the server last sent (live-computed from the prior season, or a
     // frozen snapshot if that season's ended); this just keeps it
@@ -1551,7 +1588,7 @@ function renderUpgradeTracker(container) {
       toggleRow();
     });
     tr.appendChild(h("td", { class: "upgrade-row-toggle-col" }, toggleBtn));
-    tr.appendChild(h("td", {}, driverBadge(e.driver)));
+    tr.appendChild(h("td", {}, driverBadge(e.driver, e)));
     // A driver can pick their own sponsor and upgrade parts (admin can pick
     // anyone's); modification stays admin-only below. No two drivers can
     // hold the same sponsor — like an oversubscribed upgrade part, a
@@ -2360,12 +2397,16 @@ function renderFiccBacklog(container) {
   // tab. The remaining freeform rows are admin-only.
   DATA.ficcBacklog.proposals.forEach((p, i) => {
     const isDriverRow = i < driverRowCount;
-    if (isDriverRow) p.driverName = DATA.drivers[i]?.driver ?? p.driverName;
+    // Same "only while the season is still open" rule as syncLiveDriverIdentity
+    // above — once this season has ended, the server's frozen identity
+    // must win over a same-session live edit, even during its own
+    // off-season voting.
+    if (isDriverRow && !DATA.season.ended) syncLiveDriverIdentity(p, DATA.drivers[i], { nameField: "driverName" });
     const rowAllowed = (isDriverRow ? isSelfOrAdmin(p.driverId) : isAdmin()) && !isVotingLocked(p.voting) && !DATA.season.offseasonEnded;
     const tr = h("tr");
     const tdDriver = h("td");
     if (isDriverRow) {
-      tdDriver.appendChild(driverBadge(p.driverName));
+      tdDriver.appendChild(driverBadge(p.driverName, p));
     } else if (isAdmin() && !isVotingLocked(p.voting) && !DATA.season.offseasonEnded) {
       tdDriver.appendChild(driverSelectField(p.driverName, (v) => { p.driverName = v || null; saveFiccFreeform(); }));
     } else {
@@ -2885,7 +2926,7 @@ function buildStandingsSummary() {
   const sorted = [...DATA.standings.drivers].sort((a, b) => a.position - b.position);
   for (const d of sorted) {
     tbody.appendChild(
-      h("tr", {}, h("td", {}, driverBadge(d.driver)), h("td", {}, String(d.totalPoints)), h("td", { class: podiumClass("pos-", d.position) }, String(d.position)))
+      h("tr", {}, h("td", {}, driverBadge(d.driver, d)), h("td", {}, String(d.totalPoints)), h("td", { class: podiumClass("pos-", d.position) }, String(d.position)))
     );
   }
   table.appendChild(tbody);
@@ -2931,7 +2972,7 @@ function buildUpgradesSummary() {
       attachZoomCard(badge, partCardImagePath(partNumber), `Part #${partNumber} card`);
       upgradesCell.appendChild(badge);
     });
-    tbody.appendChild(h("tr", {}, h("td", {}, driverBadge(e.driver)), h("td", {}, upgradesCell), h("td", {}, fmtMoney(e.remainingBudget))));
+    tbody.appendChild(h("tr", {}, h("td", {}, driverBadge(e.driver, e)), h("td", {}, upgradesCell), h("td", {}, fmtMoney(e.remainingBudget))));
   }
   table.appendChild(tbody);
   wrap.appendChild(table);

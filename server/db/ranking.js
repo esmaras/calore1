@@ -63,7 +63,24 @@ function buildStandingsRowsForSeason(items, seasonNumber, driverItems) {
     for (const pos of races) {
       if (pos != null && pointsLookup[pos] != null) totalPoints += pointsLookup[pos];
     }
-    return { driverId: d.driverId, driver: d.driver, team: d.teamName, races, totalPoints, position: 0 };
+    return {
+      driverId: d.driverId,
+      driver: d.driver,
+      team: d.teamName,
+      // Number-badge-or-color-dot fields — carried straight through from
+      // whatever driver item the caller passed in `driverItems`. For the
+      // viewed season, assemble.js has already resolved these against
+      // that season's frozen identity snapshot (once ended) before
+      // calling in here — see driverIdentityResolver in assemble.js.
+      driverNumber: d.driverNumber ?? null,
+      numberFont: d.numberFont ?? null,
+      numberBgShape: d.numberBgShape ?? null,
+      numberBgColor: d.numberBgColor ?? null,
+      carColor: d.carColor ?? null,
+      races,
+      totalPoints,
+      position: 0,
+    };
   });
   rankStandings(rows);
   return rows;

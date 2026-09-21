@@ -144,15 +144,16 @@ router.post("/:seasonNumber/set-current", requireAdmin, async (req, res) => {
   res.json({ currentSeasonNumber: seasonNumber });
 });
 
-// Ends a season: freezes its budget carryover for good, and opens FICC/tech
-// reg voting for the resulting off-season (see server/db/voting.js). Until
-// a season is ended, whatever the next season shows as each driver's
-// rollover is computed live off this season's current remainingBudget +
-// winnings (see assembleData/computeCarryoverByDriver) — so creating the
-// next season early still tracks this one as it plays out. Ending it
-// snapshots that math once, so it stops needing to be recomputed — and
-// stops changing — the moment the admin says this season is actually done.
-// Reversible via /reopen below, in case it was ended too early.
+// Ends a season: freezes its budget carryover (and each driver's visual
+// identity — see below) for good, and opens FICC/tech reg voting for the
+// resulting off-season (see server/db/voting.js). Until a season is
+// ended, whatever the next season shows as each driver's rollover is
+// computed live off this season's current remainingBudget + winnings (see
+// assembleData/computeCarryoverByDriver) — so creating the next season
+// early still tracks this one as it plays out. Ending it snapshots that
+// math once, so it stops needing to be recomputed — and stops changing —
+// the moment the admin says this season is actually done. Reversible via
+// /reopen below, in case it was ended too early.
 router.post("/:seasonNumber/end", requireAdmin, async (req, res) => {
   const seasonNumber = Number(req.params.seasonNumber);
   const existing = await repo.getItem(keys.season(seasonNumber));
@@ -166,8 +167,35 @@ router.post("/:seasonNumber/end", requireAdmin, async (req, res) => {
     driverId: e.driverId,
     carryover: (e.remainingBudget || 0) + (winningsByDriverId[e.driverId] || 0),
   }));
+  // A driver's visual identity — name, driver number, its badge styling,
+  // car color — is a global, never season-scoped record (see
+  // server/db/keys.js `driver(driverId)`) — editing any of it after this
+  // point would otherwise silently rewrite how this now-final season's
+  // standings/results/hall of fame/voting record reads, including making
+  // a driver who had no number/icon back then look like they'd always had
+  // one. Snapshotting exactly what each driver looked like at the moment
+  // their season actually ended (see driverIdentityResolver in
+  // server/db/assemble.js, which prefers this snapshot over the live
+  // record for any season that has one) keeps that record accurate no
+  // matter what a driver changes about themselves later. Pulled from
+  // assembled.standings.drivers rather than re-deriving it here since
+  // ranking.js's buildStandingsRowsForSeason already carries these same
+  // fields through for every driver in this season.
+  const driverIdentities = assembled.standings.drivers.map((d) => ({
+    driverId: d.driverId,
+    driver: d.driver,
+    driverNumber: d.driverNumber,
+    numberFont: d.numberFont,
+    numberBgShape: d.numberBgShape,
+    numberBgColor: d.numberBgColor,
+    carColor: d.carColor,
+  }));
 
-  const updated = await repo.updateItem(keys.season(seasonNumber), { ended: true, endedCarryoverByDriver: carryoverByDriver });
+  const updated = await repo.updateItem(keys.season(seasonNumber), {
+    ended: true,
+    endedCarryoverByDriver: carryoverByDriver,
+    endedDriverIdentities: driverIdentities,
+  });
   res.json(updated);
 });
 
@@ -197,10 +225,12 @@ router.post("/:seasonNumber/close-offseason", requireAdmin, async (req, res) => 
 });
 
 // Reverses /end: the season goes back to "in progress" (its next-season
-// carryover recomputes live again instead of using the frozen snapshot),
-// and FICC/tech-reg voting for its off-season closes again — any votes
-// already cast stay recorded, they just stop being actionable (no further
-// resolution/promotion) until the season is ended again.
+// carryover recomputes live again instead of using the frozen snapshot,
+// and driver identities shown for it track live edits again too — see
+// driverIdentityResolver), and FICC/tech-reg voting for its off-season
+// closes again — any votes already cast stay recorded, they just stop
+// being actionable (no further resolution/promotion) until the season is
+// ended again.
 router.post("/:seasonNumber/reopen", requireAdmin, async (req, res) => {
   const seasonNumber = Number(req.params.seasonNumber);
   const existing = await repo.getItem(keys.season(seasonNumber));
@@ -208,7 +238,7 @@ router.post("/:seasonNumber/reopen", requireAdmin, async (req, res) => {
   if (!existing.ended) return res.status(400).json({ error: "Season is not ended" });
   if (existing.offseasonEnded) return res.status(400).json({ error: "This season's off-season has already ended — it can't be reopened" });
 
-  const updated = await repo.updateItem(keys.season(seasonNumber), { ended: false, endedCarryoverByDriver: [] });
+  const updated = await repo.updateItem(keys.season(seasonNumber), { ended: false, endedCarryoverByDriver: [], endedDriverIdentities: [] });
   res.json(updated);
 });
 

@@ -54,6 +54,46 @@ function computeCarryoverByDriver(items, seasonNumber, allSeasonItems) {
   );
 }
 
+// A driver's visual identity — display name, driver number, its badge
+// styling (font/shape/color), and car color — lives on their DRIVER
+// record, global and never season-scoped, so editing any of it (a
+// rename, a new number, a new car color — see PUT /api/drivers/:driverId)
+// otherwise retroactively rewrites how they're shown in every past
+// season's standings/results/hall of fame/voting record too, which
+// misrepresents what actually happened at the time (including a driver
+// who had NO number/icon back then suddenly appearing to have always had
+// one). Once a season has ended, its own `endedDriverIdentities` snapshot
+// (frozen the moment it ended — see POST /:seasonNumber/end) takes
+// priority, field by field, over the driver's current live record; a
+// season that hasn't ended yet (or ended before this snapshot existed)
+// just falls back to the live record, same as before. Returns a lookup
+// function rather than a plain map so callers can resolve identities for
+// an arbitrary season (e.g. the Hall of Fame's season-by-season log) just
+// as easily as for the one currently being viewed.
+function driverIdentityResolver(forSeasonItem, driverById) {
+  const frozenById =
+    forSeasonItem?.ended && Array.isArray(forSeasonItem.endedDriverIdentities)
+      ? Object.fromEntries(forSeasonItem.endedDriverIdentities.map((d) => [d.driverId, d]))
+      : null;
+  return (driverId) => ({ ...driverById[driverId], ...(frozenById?.[driverId] || null) });
+}
+
+// The subset of a (possibly frozen) driver record that drives the client's
+// number-badge-or-color-dot indicator — pulled out so every season-scoped
+// row that shows one (upgrade tracker entries, FICC proposals) carries it
+// directly rather than making the client re-derive it via a live lookup,
+// which is exactly the lookup that would otherwise defeat the freeze (see
+// driverIdentityResolver above).
+function driverIndicatorFields(driver) {
+  return {
+    driverNumber: driver.driverNumber ?? null,
+    numberFont: driver.numberFont ?? null,
+    numberBgShape: driver.numberBgShape ?? null,
+    numberBgColor: driver.numberBgColor ?? null,
+    carColor: driver.carColor ?? null,
+  };
+}
+
 // Turns the flat array of DynamoDB items (as returned by repo.getAll())
 // into the same aggregate shape the client (public/app.js) has always
 // consumed. Derived fields (standings totalPoints/position, upgrade
@@ -86,7 +126,17 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
   const seasonNumber = viewedSeason ?? currentSeasonNumber;
   const seasonItem = allSeasonItems.find((s) => s.seasonNumber === seasonNumber) || {};
 
-  const driverItems = driversAsOfSeason(allDriverItems, seasonNumber);
+  // Frozen-identity-aware stand-in for driverById, used everywhere a
+  // driver's identity (name, number/badge styling, car color) is
+  // displayed as part of THIS season's data (standings, upgrade tracker,
+  // FICC proposals, voting reveal) — see driverIdentityResolver above.
+  // driverById itself stays live/unmodified for the one place that
+  // deliberately always wants the current identity: the Drivers page
+  // roster below.
+  const identityForViewedSeason = driverIdentityResolver(seasonItem, driverById);
+  const effectiveDriverById = Object.fromEntries(allDriverItems.map((d) => [d.driverId, identityForViewedSeason(d.driverId)]));
+
+  const driverItems = driversAsOfSeason(allDriverItems, seasonNumber).map((d) => effectiveDriverById[d.driverId]);
   const driverIds = driverItems.map((d) => d.driverId);
 
   const pointsTable = seasonItem.pointsTable || [];
@@ -152,7 +202,7 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
   const legendItem = one(itemTypes.UPGRADETRACKER_LEGEND) || {};
   const carryoverByDriverId = computeCarryoverByDriver(items, seasonNumber, allSeasonItems);
   const upgradeEntries = driverIds.map((driverId) => {
-    const driver = driverById[driverId];
+    const driver = effectiveDriverById[driverId];
     const row = upgradeTrackerByDriver[driverId] || { sponsor: null, upgrades: [], modification: 0 };
     const carryover = carryoverByDriverId[driverId] || 0;
     const budget = (seasonItem.baseTeamBudget || 0) + sponsorFunding(sponsors, row.sponsor) + (row.modification || 0) + carryover;
@@ -171,6 +221,7 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
     return {
       driverId,
       driver: driver.driver,
+      ...driverIndicatorFields(driver),
       sponsor: row.sponsor || null,
       budget,
       carryover,
@@ -228,18 +279,19 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
   // buildVotingView in server/db/voting.js.
   const driverCount = driverIds.length;
   const votingOpen = !!seasonItem.ended && !seasonItem.offseasonEnded;
-  const votingCtx = { driverCount, viewerDriverId, votingOpen, driverById };
+  const votingCtx = { driverCount, viewerDriverId, votingOpen, driverById: effectiveDriverById };
   // Whoever finished P1 this season holds its one Golden Wrench veto for
   // the resulting off-season — exposed so the client can show the veto
   // button only to that driver (and admin), and only while it's unused.
   const seasonChampionDriverId = championDriverId(items, seasonNumber, driverItems);
 
   const driverProposals = driverIds.map((driverId) => {
-    const driver = driverById[driverId];
+    const driver = effectiveDriverById[driverId];
     const p = ficcProposalByDriver[driverId] || {};
     return {
       driverId,
       driverName: driver.driver,
+      ...driverIndicatorFields(driver),
       regulationName: p.regulationName ?? null,
       explanation: p.explanation ?? null,
       voting: buildVotingView(p, votingCtx),
@@ -307,15 +359,20 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
       // in for "constructor" — this league is one driver per team) read
       // straight from that season's own final standings. A season that
       // hasn't ended yet has no business showing a "champion" — nothing
-      // is final until End Season says so.
+      // is final until End Season says so. Each season resolves the
+      // champion's identity against its OWN endedDriverIdentities
+      // snapshot (not the viewed season's) — this log spans every ended
+      // season at once, so a driver's name here must reflect whichever
+      // season each row is actually about.
       seasonLog: allSeasonItems
         .filter((s) => s.ended)
         .map((s) => {
           const champId = championDriverId(items, s.seasonNumber, driversAsOfSeason(allDriverItems, s.seasonNumber));
           const champ = champId ? driverById[champId] : null;
+          const identityForThatSeason = driverIdentityResolver(s, driverById);
           return {
             season: s.seasonNumber,
-            champion: champ?.driver ?? null,
+            champion: champId ? identityForThatSeason(champId).driver ?? null : null,
             constructorChampion: champ?.teamName ?? null,
           };
         }),
