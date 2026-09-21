@@ -1132,10 +1132,36 @@ function reconcileColorConflicts() {
 function renderDrivers(container) {
   reconcileColorConflicts();
   const panel = h("div", { class: "panel" });
-  panel.appendChild(h("h2", {}, "1961 Driver Lineup"));
+  panel.appendChild(h("h2", {}, `${DATA.season.label} Driver Lineup`));
+
+  // DATA.drivers is the full, always-live roster (every driver ever, with
+  // today's name/number/badge/car color/team/backstory) — right for the
+  // current season, but wrong for a past one: it would both include
+  // drivers who weren't even on the roster yet and show everyone's
+  // CURRENT identity instead of what that season actually looked like.
+  // Once the viewed season has ended, DATA.driversForViewedSeason is used
+  // instead — the server-resolved equivalent, already filtered to who
+  // was actually on that season's roster and with every field frozen
+  // where a snapshot exists for it (see driverIdentityResolver in
+  // server/db/assemble.js), live otherwise. Deliberately NOT
+  // reconstructed here client-side field by field — that's exactly how a
+  // field (team name) once went missing from this view while working
+  // everywhere else: two places had to independently agree on which
+  // fields were frozen, and they drifted. Editing is disabled in this
+  // view for the same reason it's disabled once Standings/Upgrade
+  // Tracker lock: any edit here would still only ever write to the
+  // driver's live record, not to this now-closed season's history.
+  const seasonEnded = !!DATA.season.ended;
+  if (seasonEnded) {
+    panel.appendChild(
+      h("p", { class: "muted panel-note" }, "This season has ended — showing each driver as they appeared that season. Switch to the current season to edit.")
+    );
+  }
+  const roster = seasonEnded ? DATA.driversForViewedSeason || [] : DATA.drivers;
+
   const grid = h("div", { class: "driver-grid" });
-  DATA.drivers.forEach((d) => {
-    const allowed = isSelfOrAdmin(d.driverId);
+  roster.forEach((d) => {
+    const allowed = !seasonEnded && isSelfOrAdmin(d.driverId);
     const card = h("div", { class: "driver-card" });
     card.style.setProperty("--car-color", carColorMap()[d.carColor] || "#888");
 
@@ -1204,7 +1230,7 @@ function renderDrivers(container) {
     }
     card.appendChild(details);
 
-    if (isAdmin()) {
+    if (isAdmin() && !seasonEnded) {
       const usernameRow = h("div", { style: "display:flex; gap:6px; align-items:flex-end; margin-top:10px;" });
       const usernameInput = h("input", { type: "text" });
       usernameInput.value = d.username || "";
@@ -1270,7 +1296,7 @@ function renderDrivers(container) {
   panel.appendChild(grid);
   container.appendChild(panel);
 
-  if (isAdmin()) {
+  if (isAdmin() && !seasonEnded) {
     container.appendChild(renderAddDriverForm());
     container.appendChild(renderAllUsersPanel());
   }
@@ -1292,15 +1318,12 @@ function renderAllUsersPanel() {
 
   apiGet("/api/admin/users")
     .then((users) => {
-      // DATA.drivers doesn't carry driverId (see assembleData) — match by
-      // username against the driver-tab rows instead, falling back to the
-      // raw driverId if a driver's username was somehow never assigned.
-      const driverNameByUsername = Object.fromEntries(DATA.drivers.filter((d) => d.username).map((d) => [d.username, d.driver]));
+      const driverNameById = Object.fromEntries(DATA.drivers.map((d) => [d.driverId, d.driver]));
       users.forEach((u) => {
         const tr = h("tr");
         tr.appendChild(h("td", {}, u.username));
         tr.appendChild(h("td", {}, u.role));
-        tr.appendChild(h("td", {}, u.driverId ? driverNameByUsername[u.username] || u.driverId : "—"));
+        tr.appendChild(h("td", {}, u.driverId ? driverNameById[u.driverId] || u.driverId : "—"));
         tr.appendChild(h("td", {}, u.mustChangePassword ? "Yes" : "No"));
         const tdReset = h("td");
         const resetBtn = h("button", { class: "btn small" }, "Reset password");
@@ -3277,10 +3300,15 @@ function normalizeData() {
     while (e.upgrades.length < MAX_UPGRADE_SLOTS) e.upgrades.push(null);
   }
   // Attach each row's owning driverId (from the server-assembled driverIds
-  // list, same order as DATA.drivers) so save calls know which per-driver
-  // endpoint to hit and requireSelfOrAdmin checks have something to compare.
+  // list, same order as these arrays) so save calls know which per-driver
+  // endpoint to hit and requireSelfOrAdmin checks have something to
+  // compare. DATA.drivers is NOT included here — unlike these, it's the
+  // full unfiltered roster (not season-scoped), a different length/order
+  // than driverIds for any season whose roster has ever changed, so
+  // index-matching against it would misattribute driverIds; the server
+  // now sends driverId directly on each DATA.drivers entry instead (see
+  // assemble.js).
   const ids = DATA.driverIds || [];
-  DATA.drivers.forEach((d, i) => { d.driverId = ids[i]; });
   DATA.standings.drivers.forEach((d, i) => { d.driverId = ids[i]; });
   DATA.upgradeTracker.entries.forEach((e, i) => { e.driverId = ids[i]; });
   DATA.ficcBacklog.proposals.forEach((p, i) => { if (i < ids.length) p.driverId = ids[i]; });

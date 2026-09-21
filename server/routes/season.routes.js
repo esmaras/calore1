@@ -168,20 +168,21 @@ router.post("/:seasonNumber/end", requireAdmin, async (req, res) => {
     carryover: (e.remainingBudget || 0) + (winningsByDriverId[e.driverId] || 0),
   }));
   // A driver's visual identity — name, driver number, its badge styling,
-  // car color — is a global, never season-scoped record (see
+  // car color, backstory — is a global, never season-scoped record (see
   // server/db/keys.js `driver(driverId)`) — editing any of it after this
   // point would otherwise silently rewrite how this now-final season's
-  // standings/results/hall of fame/voting record reads, including making
-  // a driver who had no number/icon back then look like they'd always had
-  // one. Snapshotting exactly what each driver looked like at the moment
-  // their season actually ended (see driverIdentityResolver in
-  // server/db/assemble.js, which prefers this snapshot over the live
-  // record for any season that has one) keeps that record accurate no
-  // matter what a driver changes about themselves later. Pulled from
-  // assembled.standings.drivers rather than re-deriving it here since
-  // ranking.js's buildStandingsRowsForSeason already carries these same
-  // fields through for every driver in this season.
-  const driverIdentities = assembled.standings.drivers.map((d) => ({
+  // standings/results/hall of fame/voting record/Drivers-page-history
+  // reads, including making a driver who had no number/icon back then
+  // look like they'd always had one. Snapshotting exactly what each
+  // driver looked like at the moment their season actually ended (see
+  // driverIdentityResolver in server/db/assemble.js, which prefers this
+  // snapshot over the live record for any season that has one) keeps
+  // that record accurate no matter what a driver changes about
+  // themselves later. Pulled from assembled.driversForViewedSeason rather
+  // than re-deriving it here, since assembleData already resolves these
+  // same fields for every driver in this season (and, at end-time,
+  // nothing's frozen yet, so it's exactly today's live values).
+  const driverIdentities = assembled.driversForViewedSeason.map((d) => ({
     driverId: d.driverId,
     driver: d.driver,
     driverNumber: d.driverNumber,
@@ -189,6 +190,7 @@ router.post("/:seasonNumber/end", requireAdmin, async (req, res) => {
     numberBgShape: d.numberBgShape,
     numberBgColor: d.numberBgColor,
     carColor: d.carColor,
+    backstory: d.backstory,
   }));
 
   const updated = await repo.updateItem(keys.season(seasonNumber), {

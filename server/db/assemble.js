@@ -127,12 +127,14 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
   const seasonItem = allSeasonItems.find((s) => s.seasonNumber === seasonNumber) || {};
 
   // Frozen-identity-aware stand-in for driverById, used everywhere a
-  // driver's identity (name, number/badge styling, car color) is
-  // displayed as part of THIS season's data (standings, upgrade tracker,
-  // FICC proposals, voting reveal) — see driverIdentityResolver above.
-  // driverById itself stays live/unmodified for the one place that
-  // deliberately always wants the current identity: the Drivers page
-  // roster below.
+  // driver's identity (name, number/badge styling, car color, backstory)
+  // is displayed as part of THIS season's data (standings, upgrade
+  // tracker, FICC proposals, voting reveal, and — via
+  // driversForViewedSeason below — the Drivers page's own past-season
+  // view). driverById itself stays live/unmodified for the one place
+  // that deliberately always wants the current identity regardless of
+  // viewed season: the Drivers page's CURRENT-season view (the `drivers`
+  // field below, always the full live roster).
   const identityForViewedSeason = driverIdentityResolver(seasonItem, driverById);
   const effectiveDriverById = Object.fromEntries(allDriverItems.map((d) => [d.driverId, identityForViewedSeason(d.driverId)]));
 
@@ -306,7 +308,13 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
 
   return {
     lore: one(itemTypes.LORE) || {},
+    // driverId included directly (unlike historically) so the client can
+    // key off it reliably — this array is the full, unfiltered, always-
+    // live roster (see the comment on allDriverItems above), a different
+    // length/order than the season-scoped driverIds the client used to
+    // (mis)reuse for index-matching against this one.
     drivers: allDriverItems.map((d) => ({
+      driverId: d.driverId,
       player: d.player,
       driver: d.driver,
       teamName: d.teamName,
@@ -317,6 +325,27 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
       numberFont: d.numberFont ?? null,
       numberBgShape: d.numberBgShape ?? null,
       numberBgColor: d.numberBgColor ?? null,
+    })),
+    // Same shape as `drivers` above, but resolved for THIS season
+    // specifically — every field frozen where the viewed season has a
+    // snapshot for it, live otherwise (see driverIdentityResolver). This
+    // is a single source of truth for "what did this driver look like
+    // during this season," so a client view (the Drivers page's
+    // past-season display) never has to reconstruct that itself field by
+    // field — that reconstruction is exactly how the team-name field
+    // went missing from one client code path while working in another.
+    driversForViewedSeason: driverIds.map((id) => ({
+      driverId: id,
+      player: effectiveDriverById[id].player,
+      driver: effectiveDriverById[id].driver,
+      teamName: effectiveDriverById[id].teamName,
+      carColor: effectiveDriverById[id].carColor,
+      backstory: effectiveDriverById[id].backstory,
+      username: usernameByDriverId[id] || null,
+      driverNumber: effectiveDriverById[id].driverNumber ?? null,
+      numberFont: effectiveDriverById[id].numberFont ?? null,
+      numberBgShape: effectiveDriverById[id].numberBgShape ?? null,
+      numberBgColor: effectiveDriverById[id].numberBgColor ?? null,
     })),
     season: {
       seasonNumber: seasonItem.seasonNumber,
@@ -368,12 +397,17 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
         .filter((s) => s.ended)
         .map((s) => {
           const champId = championDriverId(items, s.seasonNumber, driversAsOfSeason(allDriverItems, s.seasonNumber));
-          const champ = champId ? driverById[champId] : null;
           const identityForThatSeason = driverIdentityResolver(s, driverById);
+          const champIdentity = champId ? identityForThatSeason(champId) : null;
           return {
             season: s.seasonNumber,
-            champion: champId ? identityForThatSeason(champId).driver ?? null : null,
-            constructorChampion: champ?.teamName ?? null,
+            champion: champIdentity?.driver ?? null,
+            // teamName isn't part of the freeze-on-end snapshot by default
+            // (see POST /:seasonNumber/end) — but driverIdentityResolver's
+            // merge is generic, so a manually-added override (an ad-hoc
+            // production fix for one driver/season, say) still takes
+            // effect here the same way a frozen name does.
+            constructorChampion: champIdentity?.teamName ?? null,
           };
         }),
       missedRaceLog: (one(itemTypes.HALLOFFAME_MISSEDRACELOG) || {}).items || [],
