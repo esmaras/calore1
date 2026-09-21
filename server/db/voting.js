@@ -100,11 +100,13 @@ function resolveVotingStatus(item, driverCount) {
 }
 
 // Builds the client-facing view of one votable item's voting state.
-// Blind ballot: the yes/no split (and every other driver's individual
-// vote) stays hidden from everyone, including admin, until the item
-// resolves — only participation count, the viewer's own vote (if any),
-// and whether voting is even open at all are visible before that.
-function buildVotingView(item, { driverCount, viewerDriverId, votingOpen }) {
+// Blind ballot while open: the yes/no split (and every other driver's
+// individual vote) stays hidden from everyone, including admin, until the
+// item resolves — only participation count, the viewer's own vote (if
+// any), and whether voting is even open at all are visible before that.
+// Once resolved, the full ballot (who voted which way) is revealed to
+// everyone, to open up discussion of the outcome.
+function buildVotingView(item, { driverCount, viewerDriverId, votingOpen, driverById = {} }) {
   const tally = resolveVotingStatus(item, driverCount);
   const resolved = tally.status !== "open";
   return {
@@ -115,6 +117,13 @@ function buildVotingView(item, { driverCount, viewerDriverId, votingOpen }) {
     required: tally.required,
     yes: resolved ? tally.yes : null,
     no: resolved ? tally.no : null,
+    voters: resolved
+      ? Object.entries(item.votes || {}).map(([driverId, vote]) => ({
+          driverId,
+          name: driverById[driverId]?.driver || null,
+          vote,
+        }))
+      : null,
     myVote: viewerDriverId ? (item.votes || {})[viewerDriverId] || null : null,
   };
 }

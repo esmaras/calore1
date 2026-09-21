@@ -829,6 +829,14 @@ footer.hint {
 .voting-passed { background: rgba(76, 175, 125, 0.18); color: var(--good); }
 .voting-failed { background: rgba(230, 57, 70, 0.15); color: var(--accent); }
 .voting-vetoed { background: rgba(224, 160, 32, 0.18); color: var(--warn); }
+/* Per-driver breakdown revealed once an item resolves (see voting.voters
+   in renderVotingControl) — same pill shape as the outcome pill above,
+   colored the same way each driver's own vote already is (voting-yes-
+   selected / voting-no-selected) so yes/no reads as one consistent color
+   language across the whole voting control, not just the aggregate pill. */
+.voting-voters { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.voting-voter-yes { background: rgba(76, 175, 125, 0.18); color: var(--good); font-weight: 500; }
+.voting-voter-no { background: rgba(230, 57, 70, 0.15); color: var(--accent); font-weight: 500; }
 
 /* A staged (not-yet-submitted) Yes/No pick — green for Yes, the app's
    existing red accent for No, so the two read as opposites rather than

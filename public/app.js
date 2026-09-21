@@ -690,6 +690,11 @@ function renderVotingControl(voting, { onSelect, onSubmit, pendingVote, onVeto }
   if (voting.status !== "open") {
     const label = voting.status === "passed" ? `Passed ${voting.yes}-${voting.no}` : voting.status === "vetoed" ? "Vetoed" : `Failed ${voting.yes}-${voting.no}`;
     wrap.appendChild(h("span", { class: "voting-pill voting-" + voting.status }, label));
+    const voters = voting.voters || [];
+    if (voters.length) {
+      const chips = voters.map((v) => h("span", { class: "voting-pill voting-voter-" + v.vote }, v.name || "?"));
+      wrap.appendChild(h("div", { class: "voting-voters" }, ...chips));
+    }
     return wrap;
   }
 

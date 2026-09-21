@@ -221,13 +221,14 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
   // ---- ficc backlog proposals: driver-linked rows first (in driver order), then freeform ----
   // Voting only opens once this season has ended (see season.routes.js
   // /:seasonNumber/end) — the off-season vote is on THIS season's
-  // proposals and expiring regs, not the prior one. Blind ballot: the
-  // yes/no split and everyone else's individual vote stay hidden from
-  // every viewer (including admin) until an item resolves — see
+  // proposals and expiring regs, not the prior one. Blind ballot while
+  // open: the yes/no split and everyone else's individual vote stay
+  // hidden from every viewer (including admin) until an item resolves,
+  // at which point the full ballot is revealed to everyone — see
   // buildVotingView in server/db/voting.js.
   const driverCount = driverIds.length;
   const votingOpen = !!seasonItem.ended && !seasonItem.offseasonEnded;
-  const votingCtx = { driverCount, viewerDriverId, votingOpen };
+  const votingCtx = { driverCount, viewerDriverId, votingOpen, driverById };
   // Whoever finished P1 this season holds its one Golden Wrench veto for
   // the resulting off-season — exposed so the client can show the veto
   // button only to that driver (and admin), and only while it's unused.
