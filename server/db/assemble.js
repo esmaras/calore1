@@ -277,8 +277,9 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
   // proposals and expiring regs, not the prior one. Blind ballot while
   // open: the yes/no split and everyone else's individual vote stay
   // hidden from every viewer (including admin) until an item resolves,
-  // at which point the full ballot is revealed to everyone — see
-  // buildVotingView in server/db/voting.js.
+  // at which point the full ballot is revealed to everyone — except a
+  // driver who hasn't voted yet, who still sees it (and can still vote)
+  // as open until they do — see buildVotingView in server/db/voting.js.
   const driverCount = driverIds.length;
   const votingOpen = !!seasonItem.ended && !seasonItem.offseasonEnded;
   const votingCtx = { driverCount, viewerDriverId, votingOpen, driverById: effectiveDriverById };

@@ -105,26 +105,44 @@ function resolveVotingStatus(item, driverCount) {
 // item resolves — only participation count, the viewer's own vote (if
 // any), and whether voting is even open at all are visible before that.
 // Once resolved, the full ballot (who voted which way) is revealed to
-// everyone, to open up discussion of the outcome.
+// everyone — EXCEPT a driver who hasn't cast their own vote yet: the
+// pass/fail threshold can be reached mathematically before every driver
+// has voted, and a straggler seeing the outcome (or everyone else's pick)
+// before voting would bias their own vote and defeats the point of a
+// blind ballot. So for that one driver the view still reads as "open" —
+// letting them still vote (see castVote's matching relaxation below) —
+// until they do, at which point it flips to the real, revealed status
+// same as everyone else sees. A champion's veto is a hard, final stop
+// instead of a threshold, so it's never masked this way.
 function buildVotingView(item, { driverCount, viewerDriverId, votingOpen, driverById = {} }) {
   const tally = resolveVotingStatus(item, driverCount);
-  const resolved = tally.status !== "open";
+  const votes = item.votes || {};
+  const viewerHasVoted = !!viewerDriverId && !!votes[viewerDriverId];
+  const maskFromViewer = !!viewerDriverId && !viewerHasVoted && tally.status !== "open" && tally.status !== "vetoed";
+  const status = maskFromViewer ? "open" : tally.status;
+  const resolved = status !== "open";
   return {
     votingOpen,
-    status: tally.status, // "open" | "passed" | "failed" | "vetoed"
+    status, // "open" | "passed" | "failed" | "vetoed" — masked to "open" for an undecided driver, see above
+    // Unmasked: whether the champion's veto is still usable on this item.
+    // Unlike `status`, this must reflect the true math even for a driver
+    // who hasn't voted yet — a veto can't be un-done once cast, so a
+    // masked "open" must never make the veto button appear for an item
+    // that's actually already resolved.
+    vetoable: tally.status === "open",
     votedCount: tally.votedCount,
     totalVoters: driverCount,
     required: tally.required,
     yes: resolved ? tally.yes : null,
     no: resolved ? tally.no : null,
     voters: resolved
-      ? Object.entries(item.votes || {}).map(([driverId, vote]) => ({
+      ? Object.entries(votes).map(([driverId, vote]) => ({
           driverId,
           name: driverById[driverId]?.driver || null,
           vote,
         }))
       : null,
-    myVote: viewerDriverId ? (item.votes || {})[viewerDriverId] || null : null,
+    myVote: viewerDriverId ? votes[viewerDriverId] || null : null,
   };
 }
 
@@ -170,16 +188,26 @@ async function promoteToNextSeason(endedSeasonItem, regFields) {
 // particular item lives (its own keyed record, or one element inside a
 // shared items array). Records the vote, and if it now resolves to
 // "passed", promotes it forward and marks it `promoted` in the same save.
+// A driver who hasn't voted yet may still do so even after the pass/fail
+// threshold is mathematically reached (see the matching mask in
+// buildVotingView) — only a champion's veto or having already voted
+// blocks it. `item.promoted` is checked so a straggler's vote landing on
+// an already-passed item can't trigger a second, duplicate promotion.
 async function castVote({ item, seasonItem, voterDriverId, vote, driverCount, toRegFields, persist }) {
-  if (resolveVotingStatus(item, driverCount).status !== "open") {
+  if (item.vetoed) {
     const err = new Error("This item's vote is already resolved");
+    err.status = 400;
+    throw err;
+  }
+  if ((item.votes || {})[voterDriverId]) {
+    const err = new Error("You've already voted on this item");
     err.status = 400;
     throw err;
   }
   const votes = { ...(item.votes || {}), [voterDriverId]: vote };
   const updatedItem = { ...item, votes };
   const attrs = { votes };
-  if (resolveVotingStatus(updatedItem, driverCount).status === "passed") {
+  if (!item.promoted && resolveVotingStatus(updatedItem, driverCount).status === "passed") {
     await promoteToNextSeason(seasonItem, toRegFields(updatedItem));
     attrs.promoted = true;
   }

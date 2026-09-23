@@ -745,7 +745,10 @@ function buildVotingTd(item, vetoEligible, castVoteFn, castVetoFn, idField = "id
         pendingVoteSelections.delete(id);
       })
     : null;
-  const onVeto = vetoEligible && open ? () => handleVetoClick(() => castVetoFn(id)) : null;
+  // `vetoable`, not `open` — `open` can read true for a driver who hasn't
+  // voted yet even after the item has actually resolved (see voting.js
+  // buildVotingView), and a veto can't be undone once cast.
+  const onVeto = vetoEligible && item.voting?.vetoable ? () => handleVetoClick(() => castVetoFn(id)) : null;
   return h("td", {}, renderVotingControl(item.voting, { onSelect, onSubmit, pendingVote, onVeto }));
 }
 
