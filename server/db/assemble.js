@@ -1,7 +1,7 @@
 const { itemTypes } = require("./keys");
 const { buildStandingsRowsForSeason, driversAsOfSeason } = require("./ranking");
 const { computeCompliance, computeSponsorCompliance } = require("./priority");
-const { buildVotingView, championDriverId } = require("./voting");
+const { buildVotingView, championDriverId, resolveRequiredYes } = require("./voting");
 
 function strip(item) {
   if (!item) return item;
@@ -282,7 +282,13 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
   // as open until they do — see buildVotingView in server/db/voting.js.
   const driverCount = driverIds.length;
   const votingOpen = !!seasonItem.ended && !seasonItem.offseasonEnded;
-  const votingCtx = { driverCount, viewerDriverId, votingOpen, driverById: effectiveDriverById };
+  // FICC proposals and tech-reg renewals are separately configurable (see
+  // resolveRequiredYes in voting.js) — a season admin may want a
+  // different pass bar for one than the other.
+  const ficcRequiredYes = resolveRequiredYes(seasonItem, "ficcRequiredYesVotes", driverCount);
+  const techRegsRequiredYes = resolveRequiredYes(seasonItem, "techRegsRequiredYesVotes", driverCount);
+  const ficcVotingCtx = { driverCount, requiredYes: ficcRequiredYes, viewerDriverId, votingOpen, driverById: effectiveDriverById };
+  const techRegsVotingCtx = { driverCount, requiredYes: techRegsRequiredYes, viewerDriverId, votingOpen, driverById: effectiveDriverById };
   // Whoever finished P1 this season holds its one Golden Wrench veto for
   // the resulting off-season — exposed so the client can show the veto
   // button only to that driver (and admin), and only while it's unused.
@@ -297,12 +303,12 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
       ...driverIndicatorFields(driver),
       regulationName: p.regulationName ?? null,
       explanation: p.explanation ?? null,
-      voting: buildVotingView(p, votingCtx),
+      voting: buildVotingView(p, ficcVotingCtx),
     };
   });
   const freeformProposals = ((bySeason(itemTypes.FICC_PROPOSAL_FREEFORM, seasonNumber)[0] || {}).items || []).map((p) => {
     const { votes: _votes, vetoed: _vetoed, promoted: _promoted, ...rest } = p;
-    return { ...rest, voting: buildVotingView(p, votingCtx) };
+    return { ...rest, voting: buildVotingView(p, ficcVotingCtx) };
   });
   const ficcNotesItem = bySeason(itemTypes.FICC_NOTES, seasonNumber)[0] || {};
   const techRegsItem = bySeason(itemTypes.TECHREGS, seasonNumber)[0] || {};
@@ -364,6 +370,14 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
       offseasonEnded: seasonItem.offseasonEnded || false,
       championDriverId: seasonChampionDriverId,
       vetoUsedBy: seasonItem.vetoUsedBy || null,
+      // The admin's raw override (null = "use the default 75% formula"),
+      // plus what that actually resolves to right now given today's
+      // eligible driver count — so the settings UI can show a real number
+      // even while the field itself is blank/unset. See resolveRequiredYes.
+      ficcRequiredYesVotes: seasonItem.ficcRequiredYesVotes ?? null,
+      ficcRequiredYesVotesEffective: ficcRequiredYes,
+      techRegsRequiredYesVotes: seasonItem.techRegsRequiredYesVotes ?? null,
+      techRegsRequiredYesVotesEffective: techRegsRequiredYes,
     },
     // All seasons that exist (for a season switcher) plus which one is
     // "current" (the default/write target) vs. "viewed" (what this
@@ -374,7 +388,7 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
     viewedSeasonNumber: seasonNumber,
     technicalRegulations: (techRegsItem.items || []).map((r) => {
       const { votes: _votes, vetoed: _vetoed, promoted: _promoted, ...rest } = r;
-      return { ...rest, voting: buildVotingView(r, votingCtx) };
+      return { ...rest, voting: buildVotingView(r, techRegsVotingCtx) };
     }),
     ficcBacklog: {
       notes: ficcNotesItem.notes || "",

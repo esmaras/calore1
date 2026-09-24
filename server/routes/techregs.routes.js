@@ -39,6 +39,34 @@ router.put("/", requireAdmin, async (req, res) => {
   res.json(item);
 });
 
+// Overrides the default proportional (75%) pass threshold for THIS
+// season's tech-reg renewal votes — see resolveRequiredYes in
+// server/db/voting.js. Deliberately NOT gated on seasonEndedLock like the
+// route above (regulation content freezes at season end, but this vote —
+// and its threshold — needs to stay adjustable through the off-season,
+// which is exactly when it runs); closes for good once the off-season
+// itself does.
+router.put("/required-yes-votes", requireAdmin, async (req, res) => {
+  const { requiredYesVotes } = req.body || {};
+  const season = await resolveSeason(req.query.season);
+  const seasonItem = await repo.getItem(keys.season(season));
+  if (!seasonItem) return res.status(404).json({ error: "No such season" });
+  if (seasonItem.offseasonEnded) {
+    return res.status(400).json({ error: "This off-season has closed — the vote threshold can no longer be changed" });
+  }
+
+  let value = null;
+  if (requiredYesVotes !== null && requiredYesVotes !== undefined && requiredYesVotes !== "") {
+    const n = Number(requiredYesVotes);
+    if (!Number.isInteger(n) || n < 1) {
+      return res.status(400).json({ error: "requiredYesVotes must be a positive whole number, or blank to use the default" });
+    }
+    value = n;
+  }
+  const updated = await repo.updateItem(keys.season(season), { techRegsRequiredYesVotes: value });
+  res.json(updated);
+});
+
 function resolveVoterDriverId(req) {
   return req.user.role === "admin" ? req.body?.voterDriverId : req.user.driverId;
 }
@@ -72,6 +100,7 @@ router.put("/:id/vote", async (req, res) => {
       voterDriverId,
       vote,
       driverCount: ctx.driverCount,
+      requiredYes: ctx.techRegsRequiredYes,
       toRegFields: regFieldsFromReg,
       persist: async (attrs) => {
         const newItems = [...items];
@@ -104,6 +133,7 @@ router.post("/:id/veto", async (req, res) => {
       seasonItem: ctx.seasonItem,
       championId: champId,
       driverCount: ctx.driverCount,
+      requiredYes: ctx.techRegsRequiredYes,
       persist: async (attrs) => {
         const newItems = [...items];
         newItems[idx] = { ...newItems[idx], ...attrs };

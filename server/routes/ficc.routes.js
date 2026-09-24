@@ -39,6 +39,33 @@ router.put("/notes", requireAdmin, async (req, res) => {
   res.json(item);
 });
 
+// Overrides the default proportional (75%) pass threshold for THIS
+// season's FICC proposals with an explicit yes-vote count — see
+// resolveRequiredYes in server/db/voting.js. Stays editable through the
+// whole off-season (not gated on seasonEndedLock, unlike regulation
+// content) since that's exactly when this vote is happening; closes for
+// good once the off-season itself does, same as everything else here.
+router.put("/required-yes-votes", requireAdmin, async (req, res) => {
+  const { requiredYesVotes } = req.body || {};
+  const season = await resolveSeason(req.query.season);
+  const seasonItem = await repo.getItem(keys.season(season));
+  if (!seasonItem) return res.status(404).json({ error: "No such season" });
+  if (seasonItem.offseasonEnded) {
+    return res.status(400).json({ error: "This off-season has closed — the vote threshold can no longer be changed" });
+  }
+
+  let value = null;
+  if (requiredYesVotes !== null && requiredYesVotes !== undefined && requiredYesVotes !== "") {
+    const n = Number(requiredYesVotes);
+    if (!Number.isInteger(n) || n < 1) {
+      return res.status(400).json({ error: "requiredYesVotes must be a positive whole number, or blank to use the default" });
+    }
+    value = n;
+  }
+  const updated = await repo.updateItem(keys.season(season), { ficcRequiredYesVotes: value });
+  res.json(updated);
+});
+
 // Must be registered before /proposals/:driverId below — Express matches
 // in registration order, and "freeform" would otherwise satisfy the
 // :driverId pattern and shadow this route entirely.
@@ -177,6 +204,7 @@ router.put("/proposals/freeform/:id/vote", async (req, res) => {
       voterDriverId,
       vote,
       driverCount: ctx.driverCount,
+      requiredYes: ctx.ficcRequiredYes,
       toRegFields: regFieldsFromProposal,
       persist: async (attrs) => {
         const newItems = [...items];
@@ -212,6 +240,7 @@ router.post("/proposals/freeform/:id/veto", async (req, res) => {
       seasonItem: ctx.seasonItem,
       championId: champId,
       driverCount: ctx.driverCount,
+      requiredYes: ctx.ficcRequiredYes,
       persist: async (attrs) => {
         const newItems = [...items];
         newItems[idx] = { ...newItems[idx], ...attrs };
@@ -247,6 +276,7 @@ router.put("/proposals/:driverId/vote", async (req, res) => {
       voterDriverId,
       vote,
       driverCount: ctx.driverCount,
+      requiredYes: ctx.ficcRequiredYes,
       toRegFields: regFieldsFromProposal,
       persist: (attrs) => repo.updateItem(keys.ficcProposal(driverId, ctx.season), attrs),
     });
@@ -276,6 +306,7 @@ router.post("/proposals/:driverId/veto", async (req, res) => {
       seasonItem: ctx.seasonItem,
       championId: champId,
       driverCount: ctx.driverCount,
+      requiredYes: ctx.ficcRequiredYes,
       persist: (attrs) => repo.updateItem(keys.ficcProposal(driverId, ctx.season), attrs),
     });
     res.json(updated);

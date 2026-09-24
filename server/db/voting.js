@@ -60,14 +60,33 @@ function mergeVotingState(oldItems, newItems) {
   });
 }
 
-// The league's written rule is "6/8 votes to pass" — preserved here as a
-// fraction (75%) rather than a hardcoded "6" so the threshold still makes
-// sense if the roster ever grows or shrinks, while reproducing exactly
-// "6" for today's 8 drivers.
+// The league's written rule was originally "6/8 votes to pass" — kept here
+// as a fraction (75%) rather than a hardcoded "6" purely as the DEFAULT
+// used when a season has no explicit override (see resolveRequiredYes
+// below), so a newly-created season still reproduces "6" for today's 8
+// drivers without an admin having to set anything.
 const REQUIRED_YES_FRACTION = 0.75;
 
 function requiredYesVotes(driverCount) {
   return Math.ceil(driverCount * REQUIRED_YES_FRACTION);
+}
+
+// FICC Backlog proposals and Technical Regulation renewals are allowed
+// separate thresholds (a season may want a stricter bar for rule changes
+// than for one-off proposals, or vice versa) — each stored as its own
+// field directly on the season item: `ficcRequiredYesVotes` /
+// `techRegsRequiredYesVotes`. An admin-set explicit count always wins;
+// falling back to the proportional default (above) is what keeps the
+// threshold from silently changing out from under an in-progress vote
+// just because a driver joined or left the roster (see
+// getRosterChangeSeasonNumber in server/db/currentSeason.js, which keeps
+// a roster change from landing on an already-voting season in the first
+// place — this is the second line of defense: even a legitimate roster
+// change to the CORRECT season no longer silently shifts what "enough
+// votes" means unless an admin explicitly opts into a new number).
+function resolveRequiredYes(seasonItem, field, driverCount) {
+  const override = seasonItem?.[field];
+  return Number.isInteger(override) && override > 0 ? override : requiredYesVotes(driverCount);
 }
 
 // Resolves the moment the outcome becomes mathematically certain, not
@@ -76,12 +95,12 @@ function requiredYesVotes(driverCount) {
 // a yes majority to still be possible. Both conditions naturally cover
 // "everyone voted" as a special case, so there's no need to check that
 // separately.
-function tallyVotes(votes, driverCount) {
+function tallyVotes(votes, driverCount, requiredYes) {
   const entries = Object.entries(votes || {});
   const yes = entries.filter(([, v]) => v === "yes").length;
   const no = entries.filter(([, v]) => v === "no").length;
   const votedCount = entries.length;
-  const required = requiredYesVotes(driverCount);
+  const required = requiredYes;
   const maxPossibleYes = yes + (driverCount - votedCount);
 
   let status;
@@ -94,9 +113,9 @@ function tallyVotes(votes, driverCount) {
 
 // A vetoed item is always "failed" regardless of its vote tally — the
 // champion's Golden Wrench overrides the count outright.
-function resolveVotingStatus(item, driverCount) {
-  if (item.vetoed) return { ...tallyVotes(item.votes, driverCount), status: "vetoed" };
-  return tallyVotes(item.votes, driverCount);
+function resolveVotingStatus(item, driverCount, requiredYes) {
+  if (item.vetoed) return { ...tallyVotes(item.votes, driverCount, requiredYes), status: "vetoed" };
+  return tallyVotes(item.votes, driverCount, requiredYes);
 }
 
 // Builds the client-facing view of one votable item's voting state.
@@ -114,8 +133,8 @@ function resolveVotingStatus(item, driverCount) {
 // until they do, at which point it flips to the real, revealed status
 // same as everyone else sees. A champion's veto is a hard, final stop
 // instead of a threshold, so it's never masked this way.
-function buildVotingView(item, { driverCount, viewerDriverId, votingOpen, driverById = {} }) {
-  const tally = resolveVotingStatus(item, driverCount);
+function buildVotingView(item, { driverCount, requiredYes, viewerDriverId, votingOpen, driverById = {} }) {
+  const tally = resolveVotingStatus(item, driverCount, requiredYes);
   const votes = item.votes || {};
   const viewerHasVoted = !!viewerDriverId && !!votes[viewerDriverId];
   const maskFromViewer = !!viewerDriverId && !viewerHasVoted && tally.status !== "open" && tally.status !== "vetoed";
@@ -193,7 +212,7 @@ async function promoteToNextSeason(endedSeasonItem, regFields) {
 // buildVotingView) — only a champion's veto or having already voted
 // blocks it. `item.promoted` is checked so a straggler's vote landing on
 // an already-passed item can't trigger a second, duplicate promotion.
-async function castVote({ item, seasonItem, voterDriverId, vote, driverCount, toRegFields, persist }) {
+async function castVote({ item, seasonItem, voterDriverId, vote, driverCount, requiredYes, toRegFields, persist }) {
   if (item.vetoed) {
     const err = new Error("This item's vote is already resolved");
     err.status = 400;
@@ -207,7 +226,7 @@ async function castVote({ item, seasonItem, voterDriverId, vote, driverCount, to
   const votes = { ...(item.votes || {}), [voterDriverId]: vote };
   const updatedItem = { ...item, votes };
   const attrs = { votes };
-  if (!item.promoted && resolveVotingStatus(updatedItem, driverCount).status === "passed") {
+  if (!item.promoted && resolveVotingStatus(updatedItem, driverCount, requiredYes).status === "passed") {
     await promoteToNextSeason(seasonItem, toRegFields(updatedItem));
     attrs.promoted = true;
   }
@@ -220,8 +239,8 @@ async function castVote({ item, seasonItem, voterDriverId, vote, driverCount, to
 // only once per off-season — `seasonItem.vetoUsedBy` is the guard,
 // checked and set here so two near-simultaneous veto attempts can't both
 // succeed.
-async function castVeto({ item, seasonItem, championId, driverCount, persist }) {
-  if (resolveVotingStatus(item, driverCount).status !== "open") {
+async function castVeto({ item, seasonItem, championId, driverCount, requiredYes, persist }) {
+  if (resolveVotingStatus(item, driverCount, requiredYes).status !== "open") {
     const err = new Error("This item's vote is already resolved");
     err.status = 400;
     throw err;
@@ -265,12 +284,22 @@ async function loadVotingContext(req) {
   // started must not retroactively shift what "6 of 8" needed to mean (see
   // driversAsOfSeason in ranking.js).
   const driverItems = driversAsOfSeason(all.filter((i) => i.itemType === itemTypes.DRIVER), season);
-  return { season, seasonItem, all, driverItems, driverCount: driverItems.length };
+  const driverCount = driverItems.length;
+  return {
+    season,
+    seasonItem,
+    all,
+    driverItems,
+    driverCount,
+    ficcRequiredYes: resolveRequiredYes(seasonItem, "ficcRequiredYesVotes", driverCount),
+    techRegsRequiredYes: resolveRequiredYes(seasonItem, "techRegsRequiredYesVotes", driverCount),
+  };
 }
 
 module.exports = {
   ensureIds,
   requiredYesVotes,
+  resolveRequiredYes,
   tallyVotes,
   resolveVotingStatus,
   buildVotingView,

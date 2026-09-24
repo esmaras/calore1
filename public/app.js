@@ -557,6 +557,14 @@ function saveFiccNotes() {
   scheduleSave("ficc-notes", () => apiPut(`/api/ficc/notes${seasonQuery()}`, { notes: DATA.ficcBacklog.notes }));
 }
 
+function saveFiccRequiredYesVotes(v) {
+  return apiPut(`/api/ficc/required-yes-votes${seasonQuery()}`, { requiredYesVotes: v });
+}
+
+function saveTechRegsRequiredYesVotes(v) {
+  return apiPut(`/api/techregs/required-yes-votes${seasonQuery()}`, { requiredYesVotes: v });
+}
+
 function saveFiccProposal(driverId) {
   const p = DATA.ficcBacklog.proposals.find((p) => p.driverId === driverId);
   scheduleSave(`ficc-proposal:${driverId}`, () =>
@@ -2338,9 +2346,43 @@ function renderSeason(container) {
   container.appendChild(panel2);
 }
 
+// Passing threshold for one vote type (FICC proposals or tech-reg
+// renewals) — admin-editable any time before this off-season closes (the
+// same window voting itself stays open for), independent of whether
+// regulation CONTENT is still editable (which locks at season end). Blank
+// reverts to the default 75%-of-eligible-drivers formula (see
+// resolveRequiredYes in server/db/voting.js) — `effective` is what that
+// resolves to right now, shown as a placeholder so an admin who's never
+// touched this still sees a real number.
+function renderRequiredYesVotesControl(label, override, effective, allowed, saveFn) {
+  const wrap = h("div", { class: "muted panel-note", style: "display:flex; align-items:center; gap:8px; flex-wrap:wrap;" });
+  if (!allowed) {
+    wrap.appendChild(document.createTextNode(`${label}: ${effective} yes votes required to pass.`));
+    return wrap;
+  }
+  wrap.appendChild(document.createTextNode(`${label}: `));
+  const inp = h("input", { type: "number", min: "1", step: "1", style: "width:70px;", placeholder: String(effective) });
+  inp.value = override ?? "";
+  inp.addEventListener("change", async () => {
+    const raw = inp.value.trim();
+    inp.disabled = true;
+    try {
+      await saveFn(raw === "" ? null : Number(raw));
+      await refreshData();
+    } catch (err) {
+      showErrorBanner(`Could not update ${label.toLowerCase()}`, err.message);
+      inp.disabled = false;
+    }
+  });
+  wrap.appendChild(inp);
+  wrap.appendChild(document.createTextNode(` yes votes to pass (currently ${effective} — leave blank for the default, 75% of eligible drivers)`));
+  return wrap;
+}
+
 // ---------- Technical Regulations ----------
 function renderTechRegs(container) {
   const allowed = isAdmin() && !DATA.season.ended;
+  const thresholdAllowed = isAdmin() && !DATA.season.offseasonEnded;
   const panel = h("div", { class: "panel" });
   const heading = h("div", { style: "display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;" }, h("h2", {}, `${DATA.season.label} Technical Regulations`));
   const votingEntries = DATA.technicalRegulations.map((r) => ({ id: r.id, castVoteFn: castTechRegVote }));
@@ -2353,6 +2395,13 @@ function renderTechRegs(container) {
   }
   panel.appendChild(heading);
   if (!allowed) panel.appendChild(h("p", { class: "muted panel-note" }, "Managed by the league admin."));
+  panel.appendChild(renderRequiredYesVotesControl(
+    "Passing threshold",
+    DATA.season.techRegsRequiredYesVotes,
+    DATA.season.techRegsRequiredYesVotesEffective,
+    thresholdAllowed,
+    saveTechRegsRequiredYesVotes
+  ));
   const table = h("table");
   table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Regulation"), h("th", {}, "Explanation"), h("th", {}, "Voting"), h("th", {}, ""))));
   const tbody = h("tbody");
@@ -2414,6 +2463,13 @@ function renderFiccBacklog(container) {
     heading2.appendChild(submitAllBtn);
   }
   panel2.appendChild(heading2);
+  panel2.appendChild(renderRequiredYesVotesControl(
+    "Passing threshold",
+    DATA.season.ficcRequiredYesVotes,
+    DATA.season.ficcRequiredYesVotesEffective,
+    notesAllowed,
+    saveFiccRequiredYesVotes
+  ));
   const table = h("table");
   table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Proposed Regulation"), h("th", {}, "Explanation"), h("th", {}, "Voting"), h("th", {}, ""))));
   const tbody = h("tbody");
