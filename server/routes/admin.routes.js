@@ -3,7 +3,7 @@ const repo = require("../db/repo");
 const { keys, itemTypes, slugify } = require("../db/keys");
 const { hashPassword, generateTempPassword } = require("../auth/passwords");
 const { renameUser } = require("../auth/users");
-const { getCurrentSeasonNumber } = require("../db/currentSeason");
+const { getRosterChangeSeasonNumber } = require("../db/currentSeason");
 const { expandPointsTable } = require("../db/ranking");
 
 // Mounted with requireAdmin already applied at the app level (server/index.js)
@@ -119,7 +119,7 @@ router.post("/drivers", async (req, res) => {
 
   const tempPassword = generateTempPassword();
   const passwordHash = await hashPassword(tempPassword);
-  const joinedSeasonNumber = await getCurrentSeasonNumber();
+  const joinedSeasonNumber = await getRosterChangeSeasonNumber();
 
   const driverItem = {
     ...keys.driver(driverId),
@@ -218,7 +218,7 @@ router.delete("/drivers/:driverId", async (req, res) => {
     if (driver.carColor) releases.push(repo.deleteItem(keys.carColorClaim(driver.carColor)));
     if (driver.driverNumber) releases.push(repo.deleteItem(keys.driverNumberClaim(driver.driverNumber)));
     await Promise.all(releases);
-    const leftSeasonNumber = await getCurrentSeasonNumber();
+    const leftSeasonNumber = await getRosterChangeSeasonNumber();
     await repo.updateItem(keys.driver(driverId), { leftSeason: leftSeasonNumber });
     return res.json({ ok: true, retired: true, leftSeason: leftSeasonNumber });
   }
