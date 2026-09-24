@@ -101,11 +101,23 @@ function driverIndicatorFields(driver) {
 // read from storage — closes the class of bugs where a stale stored
 // value drifts from the fields it's derived from.
 //
+// A guest (no session at all — see identifyUser in server/auth/middleware.js)
+// only gets each driver's first name, not their full player name — the
+// driver's own in-game name/persona and backstory stay fully public either
+// way; it's specifically the real person behind the wheel that's dialed
+// back for a public, unauthenticated audience. Any signed-in viewer
+// (driver or admin) still sees everyone's full player name, same as today.
+function firstNameOnly(fullName) {
+  if (!fullName) return fullName;
+  const trimmed = String(fullName).trim();
+  return trimmed ? trimmed.split(/\s+/)[0] : fullName;
+}
+
 // `viewedSeason` selects which season's Standings/Upgrade Tracker/FICC
 // Backlog/Technical Regulations data to assemble — driver roster,
 // inventory, lore, hall of fame, and off-season budget are NOT
 // season-scoped (they carry over season to season).
-function assembleData(items, viewedSeason, viewerDriverId = null) {
+function assembleData(items, viewedSeason, viewerDriverId = null, { isAuthenticated = true } = {}) {
   const byType = groupByItemType(items);
   const one = (type) => strip((byType[type] || [])[0]);
   const bySeason = (type, season) => (byType[type] || []).filter((i) => i.season === season);
@@ -322,7 +334,7 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
     // (mis)reuse for index-matching against this one.
     drivers: allDriverItems.map((d) => ({
       driverId: d.driverId,
-      player: d.player,
+      player: isAuthenticated ? d.player : firstNameOnly(d.player),
       driver: d.driver,
       teamName: d.teamName,
       carColor: d.carColor,
@@ -343,7 +355,7 @@ function assembleData(items, viewedSeason, viewerDriverId = null) {
     // went missing from one client code path while working in another.
     driversForViewedSeason: driverIds.map((id) => ({
       driverId: id,
-      player: effectiveDriverById[id].player,
+      player: isAuthenticated ? effectiveDriverById[id].player : firstNameOnly(effectiveDriverById[id].player),
       driver: effectiveDriverById[id].driver,
       teamName: effectiveDriverById[id].teamName,
       carColor: effectiveDriverById[id].carColor,

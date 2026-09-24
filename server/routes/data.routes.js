@@ -14,7 +14,12 @@ router.get("/", async (req, res) => {
   // reveal that driver's own FICC/tech-reg vote without exposing anyone
   // else's (blind ballot — see buildVotingView in server/db/voting.js).
   const user = identifyUser(req);
-  res.json(assembleData(items, season, user?.driverId ?? null));
+  // Guests (no session at all) get a lighter-touch player identity — see
+  // firstNameOnly in assemble.js. Every OTHER caller of assembleData
+  // (internal recomputation, season-end snapshots, admin actions) leaves
+  // isAuthenticated at its default `true`, on purpose — those need the
+  // real, full data regardless of who's making the request.
+  res.json(assembleData(items, season, user?.driverId ?? null, { isAuthenticated: !!user }));
 });
 
 module.exports = router;
