@@ -12,18 +12,23 @@ const { buildStandingsRowsForSeason } = require("./ranking");
 // can change upgrade parts mid-season, and that mid-season swap should be
 // prioritized by how the season is actually going right now, not by
 // whatever happened last year. Worse standing (bigger position number)
-// picks first. A driver with no rows in whichever season is the basis
-// (brand new, or hasn't raced yet this season) gets zero points/no races
-// run through the same ranking, which naturally lands them at or near the
-// bottom — i.e. top priority — with no special-casing needed. With
-// nothing to base priority on at all, everyone ties and roster order
-// (DRIVER.order) breaks it.
-// `reversed` flips who picks first: false (the default, used for upgrade
-// parts) gives worse-standing drivers first pick, same as a fantasy-league
-// draft. true (used for sponsors — see computeSponsorCompliance) gives
-// first place first pick instead — the opposite fairness call, since a
-// sponsor is closer to a reward for winning than a handicap-balancing
-// mechanic.
+// picks first.
+// A driver who didn't exist yet as of the basis season (joined after it —
+// i.e. a brand-new driver added for a new season) has no standing to base
+// anything on at all, so they always rank lowest priority, for upgrades
+// *and* sponsors alike, regardless of `reversed` — a new driver shouldn't
+// vault to the front of the upgrade queue just because "no history" would
+// otherwise sort like "last place." (A driver who already existed as of
+// the basis season but simply scored zero points there is a real last
+// place, not a missing history, and is ranked by that position as normal.)
+// With no basis season at all (nothing before this one exists yet),
+// everyone ties and roster order (DRIVER.order) breaks it.
+// `reversed` flips who picks first among drivers who DO have a real basis:
+// false (the default, used for upgrade parts) gives worse-standing
+// drivers first pick, same as a fantasy-league draft. true (used for
+// sponsors — see computeSponsorCompliance) gives first place first pick
+// instead — the opposite fairness call, since a sponsor is closer to a
+// reward for winning than a handicap-balancing mechanic.
 function computePriorityOrder(items, seasonNumber, driverItems, { reversed = false } = {}) {
   const currentSeasonHasResults = items.some(
     (i) => i.itemType === itemTypes.STANDINGS && i.season === seasonNumber && (i.races || []).some((r) => r != null)
@@ -46,8 +51,14 @@ function computePriorityOrder(items, seasonNumber, driverItems, { reversed = fal
       positionById[row.driverId] = row.position;
     }
   }
+  const noBasisById = Object.fromEntries(
+    driverItems.map((d) => [d.driverId, basisSeasonNumber == null || (d.joinedSeason ?? -Infinity) > basisSeasonNumber])
+  );
 
   const ordered = [...driverItems].sort((a, b) => {
+    const noBasisA = noBasisById[a.driverId];
+    const noBasisB = noBasisById[b.driverId];
+    if (noBasisA !== noBasisB) return noBasisA ? 1 : -1; // no basis-season standing at all always ranks lowest, either way
     const posA = positionById[a.driverId] ?? 0;
     const posB = positionById[b.driverId] ?? 0;
     if (posA !== posB) return reversed ? posA - posB : posB - posA; // bigger (worse) position picks first, unless reversed
