@@ -3143,9 +3143,10 @@ function buildDriversSummary() {
   // none }`, and an inline style on this element would out-specificity
   // that rule regardless of what the stylesheet says.
   const list = h("div", { class: "bento-driver-list" });
-  DATA.drivers.forEach((d) => {
+  const roster = DATA.season.ended ? DATA.driversForViewedSeason || [] : DATA.drivers;
+  roster.forEach((d) => {
     const row = h("div", { style: "display:flex; align-items:center; justify-content:space-between; gap:10px;" });
-    row.appendChild(driverBadge(d.driver));
+    row.appendChild(driverBadge(d.driver, d));
     row.appendChild(h("span", { class: "muted" }, d.teamName || ""));
     list.appendChild(row);
   });
