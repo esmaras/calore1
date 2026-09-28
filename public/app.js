@@ -799,6 +799,7 @@ function genericTrackerPanel(title, arr, columns, makeEmptyRow, { allowed = true
   if (arr.length === 0) {
     panel.appendChild(h("p", { class: "muted" }, allowed ? "No entries yet — add one below as it happens during the campaign." : "No entries yet."));
   }
+  const wrap = h("div", { class: "table-scroll" });
   const table = h("table");
   table.appendChild(h("thead", {}, h("tr", {}, ...columns.map((c) => h("th", {}, c.label)), h("th", {}))));
   const tbody = h("tbody");
@@ -830,7 +831,8 @@ function genericTrackerPanel(title, arr, columns, makeEmptyRow, { allowed = true
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
-  panel.appendChild(table);
+  wrap.appendChild(table);
+  panel.appendChild(wrap);
   if (allowed) {
     const addBtn = h("button", { class: "btn" }, "+ Add row");
     addBtn.addEventListener("click", () => { arr.push(makeEmptyRow()); onSave(); renderActive(); });
@@ -2075,6 +2077,7 @@ function renderInventory(container) {
     () => sponsorInvExpanded.clear()
   );
   panel2.appendChild(h("div", { class: "panel-header" }, h("h2", {}, "Sponsors"), sponsorsExpandBtn));
+  const wrap2 = h("div", { class: "table-scroll" });
   const table2 = h("table");
   table2.appendChild(h("thead", {}, h("tr", {}, h("th", { class: "inv-chevron-col" }), h("th", {}, "Name"), h("th", {}, "Type"), h("th", {}, "Count"), h("th", {}, "Funding"))));
   const tbody2 = h("tbody");
@@ -2125,7 +2128,8 @@ function renderInventory(container) {
     });
   });
   table2.appendChild(tbody2);
-  panel2.appendChild(table2);
+  wrap2.appendChild(table2);
+  panel2.appendChild(wrap2);
   container.appendChild(panel2);
 
   const panel3 = h("div", { class: "panel" });
@@ -2498,6 +2502,7 @@ function renderTechRegs(container) {
     thresholdAllowed,
     saveTechRegsRequiredYesVotes
   ));
+  const wrap = h("div", { class: "table-scroll" });
   const table = h("table");
   table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Regulation"), h("th", {}, "Explanation"), h("th", {}, "Voting"), h("th", {}, ""))));
   const tbody = h("tbody");
@@ -2524,7 +2529,8 @@ function renderTechRegs(container) {
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
-  panel.appendChild(table);
+  wrap.appendChild(table);
+  panel.appendChild(wrap);
   if (allowed) {
     const addBtn = h("button", { class: "btn" }, "+ Add regulation");
     addBtn.addEventListener("click", () => { DATA.technicalRegulations.push({ name: "", explanation: "" }); saveTechRegs(); renderActive(); });
@@ -2566,6 +2572,7 @@ function renderFiccBacklog(container) {
     notesAllowed,
     saveFiccRequiredYesVotes
   ));
+  const wrap = h("div", { class: "table-scroll" });
   const table = h("table");
   table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Driver"), h("th", {}, "Proposed Regulation"), h("th", {}, "Explanation"), h("th", {}, "Voting"), h("th", {}, ""))));
   const tbody = h("tbody");
@@ -2641,7 +2648,8 @@ function renderFiccBacklog(container) {
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
-  panel2.appendChild(table);
+  wrap.appendChild(table);
+  panel2.appendChild(wrap);
   if (isAdmin() && !DATA.season.offseasonEnded) {
     const addBtn = h("button", { class: "btn" }, "+ Add proposal");
     addBtn.addEventListener("click", () => { DATA.ficcBacklog.proposals.push({ driverName: null, regulationName: "", explanation: "" }); saveFiccFreeform(); renderActive(); });
@@ -2656,6 +2664,7 @@ function renderOffSeason(container) {
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "Off-Season Upgrade Budget — Catch-up System"));
   if (!allowed) panel.appendChild(h("p", { class: "muted panel-note" }, "Managed by the league admin."));
+  const wrap = h("div", { class: "table-scroll" });
   const table = h("table");
   table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Tier"), h("th", {}, "Upgrade Exchange"), h("th", {}, "Heat Cards"), h("th", {}, "Winnings"))));
   const tbody = h("tbody");
@@ -2676,7 +2685,8 @@ function renderOffSeason(container) {
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
-  panel.appendChild(table);
+  wrap.appendChild(table);
+  panel.appendChild(wrap);
   container.appendChild(panel);
 
   // One row per finishing POSITION (1..driverCount), not per driver — a
@@ -2697,6 +2707,7 @@ function renderOffSeason(container) {
       ? "One row per finishing position, independent of whoever's currently there — \"Final Standings\" shows who actually finished there once the season ended, feeding next season's starting budget."
       : "One row per finishing position, independent of whoever's currently there — \"Current Projection\" is just a preview of who that is right now. Resolved to whoever actually finishes there once the season ends, feeding next season's starting budget."
   ));
+  const winWrap = h("div", { class: "table-scroll" });
   const winTable = h("table");
   winTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Winnings"), h("th", {}, winPosLabel))));
   const winTbody = h("tbody");
@@ -2714,7 +2725,8 @@ function renderOffSeason(container) {
     winTbody.appendChild(tr);
   });
   winTable.appendChild(winTbody);
-  winPanel.appendChild(winTable);
+  winWrap.appendChild(winTable);
+  winPanel.appendChild(winWrap);
   container.appendChild(winPanel);
 
   // Same shape/purpose as Season-End Winnings above, one row per position.
@@ -2725,6 +2737,7 @@ function renderOffSeason(container) {
       ? "One row per finishing position, independent of whoever's currently there — \"Final Standings\" shows who actually finished there once the season ended. Leave blank for no limit. Applied to whoever actually finishes there once you begin the next season."
       : "One row per finishing position, independent of whoever's currently there — \"Current Projection\" is just a preview of who that is right now. Leave blank for no limit. Applied to whoever actually finishes there once you begin the next season."
   ));
+  const swapWrap = h("div", { class: "table-scroll" });
   const swapTable = h("table");
   swapTable.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Pos"), h("th", {}, "Max Swaps"), h("th", {}, winPosLabel))));
   const swapTbody = h("tbody");
@@ -2742,7 +2755,8 @@ function renderOffSeason(container) {
     swapTbody.appendChild(tr);
   });
   swapTable.appendChild(swapTbody);
-  swapPanel.appendChild(swapTable);
+  swapWrap.appendChild(swapTable);
+  swapPanel.appendChild(swapWrap);
   container.appendChild(swapPanel);
 }
 
@@ -2752,6 +2766,7 @@ function renderHallOfFame(container) {
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "Season-by-Season Champion Log"));
   panel.appendChild(h("p", { class: "muted panel-note" }, "Auto-populated from final standings once a season is ended — nothing to edit here."));
+  const wrap = h("div", { class: "table-scroll" });
   const table = h("table");
   table.appendChild(h("thead", {}, h("tr", {}, h("th", {}, "Season"), h("th", {}, "Driver's Champion"), h("th", {}, "Constructor's Champion"))));
   const tbody = h("tbody");
@@ -2763,7 +2778,8 @@ function renderHallOfFame(container) {
     tbody.appendChild(tr);
   });
   table.appendChild(tbody);
-  panel.appendChild(table);
+  wrap.appendChild(table);
+  panel.appendChild(wrap);
   container.appendChild(panel);
 
   container.appendChild(genericTrackerPanel(
