@@ -1886,6 +1886,29 @@ function trackCardImagePath(trackName) {
   return slug ? `/images/cards/tracks/${slug}.png` : null;
 }
 
+// Every track with card art, one entry per unique image on disk — several
+// TRACK_CARD_IMAGE_SLUGS keys above are just spelling aliases for the same
+// country (e.g. "uk"/"united kingdom"/"great britain" all point at
+// great_britain.png), so this list is its own thing rather than derived
+// from that map, to give each card exactly one canonical display name for
+// the Inventory page's Tracks section below.
+const TRACK_CARDS = [
+  { name: "Japan", slug: "japan" },
+  { name: "Mexico", slug: "mexico" },
+  { name: "Netherlands", slug: "netherlands" },
+  { name: "France", slug: "france" },
+  { name: "Italy", slug: "italy" },
+  { name: "Great Britain", slug: "great_britain" },
+  { name: "USA", slug: "usa" },
+  { name: "Germany", slug: "germany" },
+  { name: "Spain", slug: "spain" },
+  { name: "South Africa", slug: "south_africa" },
+];
+// Same idea as invExpanded/sponsorInvExpanded below — module-level so open
+// state survives a re-render, keyed by slug since that's each TRACK_CARDS
+// entry's stable identifier.
+const trackInvExpanded = new Set();
+
 function invSortedRows(rows) {
   if (!invSort.key) return rows;
   const { key, dir } = invSort;
@@ -2004,10 +2027,31 @@ function renderInventoryTableInto(holder) {
   holder.appendChild(table);
 }
 
+// Builds a per-section "Expand All"/"Collapse All" toggle — the Inventory
+// page has three independent expandable tables (Upgrade Parts, Sponsors,
+// Tracks), each with its own button rather than one page-wide button, so
+// expanding one section's card art doesn't force-open the other two.
+// `allExpanded`/`expandAll`/`collapseAll` are the section's own
+// isAllExpanded/expand-everything/collapse-everything callbacks.
+function expandAllButton(allExpanded, expandAll, collapseAll) {
+  const btn = h("button", { class: "btn small" }, allExpanded() ? "Collapse All" : "Expand All");
+  btn.addEventListener("click", () => {
+    if (allExpanded()) collapseAll(); else expandAll();
+    renderActive();
+  });
+  return btn;
+}
+
 function renderInventory(container) {
   const allowed = isAdmin();
+
   const panel = h("div", { class: "panel" });
-  panel.appendChild(h("h2", {}, "Upgrade Parts Inventory"));
+  const upgradesExpandBtn = expandAllButton(
+    () => DATA.inventory.upgrades.every((u) => invExpanded.has(u.partNumber)),
+    () => DATA.inventory.upgrades.forEach((u) => invExpanded.add(u.partNumber)),
+    () => invExpanded.clear()
+  );
+  panel.appendChild(h("div", { class: "panel-header" }, h("h2", {}, "Upgrade Parts Inventory"), upgradesExpandBtn));
   if (!allowed) panel.appendChild(h("p", { class: "muted panel-note" }, "Read-only — managed by the league admin."));
   const types = [...new Set(DATA.inventory.upgrades.map((u) => u.type))].sort();
   const tiers = [...new Set(DATA.inventory.upgrades.map((u) => String(u.tier)))].sort();
@@ -2025,7 +2069,12 @@ function renderInventory(container) {
   renderInventoryTableInto(holder);
 
   const panel2 = h("div", { class: "panel" });
-  panel2.appendChild(h("h2", {}, "Sponsors"));
+  const sponsorsExpandBtn = expandAllButton(
+    () => DATA.inventory.sponsors.every((s) => sponsorInvExpanded.has(s.sponsorId)),
+    () => DATA.inventory.sponsors.forEach((s) => sponsorInvExpanded.add(s.sponsorId)),
+    () => sponsorInvExpanded.clear()
+  );
+  panel2.appendChild(h("div", { class: "panel-header" }, h("h2", {}, "Sponsors"), sponsorsExpandBtn));
   const table2 = h("table");
   table2.appendChild(h("thead", {}, h("tr", {}, h("th", { class: "inv-chevron-col" }), h("th", {}, "Name"), h("th", {}, "Type"), h("th", {}, "Count"), h("th", {}, "Funding"))));
   const tbody2 = h("tbody");
@@ -2078,6 +2127,53 @@ function renderInventory(container) {
   table2.appendChild(tbody2);
   panel2.appendChild(table2);
   container.appendChild(panel2);
+
+  const panel3 = h("div", { class: "panel" });
+  const tracksExpandBtn = expandAllButton(
+    () => TRACK_CARDS.every((t) => trackInvExpanded.has(t.slug)),
+    () => TRACK_CARDS.forEach((t) => trackInvExpanded.add(t.slug)),
+    () => trackInvExpanded.clear()
+  );
+  panel3.appendChild(h("div", { class: "panel-header" }, h("h2", {}, "Tracks"), tracksExpandBtn));
+  const table3 = h("table");
+  table3.appendChild(h("thead", {}, h("tr", {}, h("th", { class: "inv-chevron-col" }), h("th", {}, "Track"))));
+  const tbody3 = h("tbody");
+  TRACK_CARDS.forEach((t) => {
+    const tr = h("tr", { class: "inv-row" });
+    // Same chevron-column trick as the Upgrade Parts/Sponsors tables above.
+    const chevronTd = h("td", { class: "inv-chevron-col" }, h("span", { class: "inv-chevron" }, "▸"));
+    tr.appendChild(chevronTd);
+    tr.appendChild(h("td", {}, t.name));
+    tbody3.appendChild(tr);
+
+    // Same click-to-expand card-art row as the Upgrade Parts/Sponsors
+    // tables above — tracks have no editable fields, just art to browse.
+    const detailInner = h("div", { class: "inv-detail-inner" });
+    const img = h("img", { src: trackCardImagePath(t.name), alt: `${t.name} track card`, loading: "lazy" });
+    img.addEventListener("error", () => {
+      detailInner.innerHTML = "";
+      detailInner.appendChild(h("p", { class: "muted" }, "No card image available."));
+    });
+    detailInner.appendChild(img);
+    const detailWrap = h("div", { class: "inv-detail" }, detailInner);
+    const detailTd = h("td", { colspan: "2" }, detailWrap);
+    tbody3.appendChild(h("tr", { class: "inv-detail-row" }, detailTd));
+
+    if (trackInvExpanded.has(t.slug)) {
+      tr.classList.add("open");
+      detailWrap.classList.add("open");
+    }
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("input, select, button, a")) return;
+      const open = !trackInvExpanded.has(t.slug);
+      if (open) trackInvExpanded.add(t.slug); else trackInvExpanded.delete(t.slug);
+      tr.classList.toggle("open", open);
+      detailWrap.classList.toggle("open", open);
+    });
+  });
+  table3.appendChild(tbody3);
+  panel3.appendChild(table3);
+  container.appendChild(panel3);
 
   if (allowed) {
     container.appendChild(renderCarColorsPanel());

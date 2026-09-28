@@ -119,6 +119,25 @@ h1, h2, h3 { font-weight: 700; letter-spacing: 0.2px; }
   margin-bottom: 16px;
 }
 
+/* A panel title paired with its own per-section action (e.g. Inventory's
+   Expand All/Collapse All) — the border/spacing moves here so the two sit
+   on one divided header row instead of the button floating above/below it. */
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.panel-header h2 {
+  margin: 0;
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
 .panel-note { margin-top: -8px; margin-bottom: 14px; }
 
 table {
