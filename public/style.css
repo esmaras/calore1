@@ -55,6 +55,135 @@ h1, h2, h3 { font-weight: 700; letter-spacing: 0.2px; }
 .brand h1 { margin: 0; font-size: 1.4rem; }
 .brand #league-sub { margin-top: 2px; }
 
+/* Season/year switcher: a custom card-style dropdown (not a native
+   <select>, whose popup can't be themed). When open, the trigger and menu
+   are made to read as ONE continuous shape rather than two stacked boxes:
+   the trigger's own fill/border/shadow drop out entirely (background:
+   transparent) and the menu — which starts at the same top-left corner,
+   same width, same border-radius — becomes the sole painted surface, with
+   the trigger's label simply sitting on top of it. Because there's only
+   ever one background/one shadow/one border-radius visible at a time,
+   there's no seam where two independent edges could fail to line up. */
+.season-switcher { position: relative; display: inline-block; }
+
+.season-trigger {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 110px;
+  white-space: nowrap;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--accent-dim);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.92rem;
+  font-family: inherit;
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.season-trigger:hover {
+  border-color: var(--accent);
+}
+.season-trigger:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+.season-trigger[aria-expanded="true"] {
+  background: transparent;
+  border-color: transparent;
+  color: #1a0e06;
+  box-shadow: none;
+}
+.season-trigger-arrow {
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid var(--text-dim);
+  border-bottom: 1.5px solid var(--text-dim);
+  transform: rotate(45deg);
+  margin-top: -3px;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.season-trigger[aria-expanded="true"] .season-trigger-arrow {
+  border-color: #1a0e06;
+  transform: rotate(-135deg);
+  margin-top: 3px;
+}
+
+.season-menu {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  min-width: calc(100% + 20px);
+  width: max-content;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 42px 14px 16px;
+  /* A literal 999px here (matching the trigger pill's own radius) reads
+     fine on the trigger's small box, but on this much wider/taller card
+     it forces the browser's corner-overlap reduction to kick in: the
+     top edge (999+999 far exceeding the card's width) becomes the most
+     restrictive edge, so its scale-down factor gets applied to ALL FOUR
+     corners — domes the top and flattens the bottom corners toward 0.
+     Use the trigger's actual rendered corner radius (~half its height)
+     as a fixed value instead, so it matches the pill's curve exactly
+     without ever needing that global rescale. */
+  border-radius: 18px;
+  background: linear-gradient(165deg, var(--accent), #ffb37a 60%, #c94a3d 105%);
+  box-shadow: 0 16px 32px rgba(0,0,0,0.5);
+}
+/* The [hidden] attribute is only display:none via the (low-priority) UA
+   stylesheet — this class's own `display: flex` above, being an author
+   rule, otherwise wins regardless of specificity and the panel never
+   actually hides. Restate it here so toggling .hidden in JS works. */
+.season-menu[hidden] {
+  display: none;
+}
+
+.season-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(15,16,20,0.4);
+  border: none;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  padding: 9px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.season-option-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,0.65);
+  flex: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.season-option:hover {
+  background: rgba(15,16,20,0.55);
+}
+.season-option.active {
+  background: #fff;
+  color: var(--accent-dim);
+}
+.season-option.active .season-option-dot {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 .save-state {
   font-size: 0.85rem;
   padding: 6px 12px;

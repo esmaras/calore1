@@ -3632,18 +3632,69 @@ async function refreshData() {
   renderActive();
 }
 
+// Custom card-style dropdown (rather than a native <select>) so the season
+// switcher can carry the site's red/orange gradient treatment used elsewhere
+// (see .bento-card's hover ring) — a native select's popup can't be themed.
 function renderSeasonSwitcher() {
   const holder = document.getElementById("season-switcher");
   holder.innerHTML = "";
-  const select = selectInput(
-    String(VIEWED_SEASON),
-    DATA.seasons.map((s) => ({ value: String(s.seasonNumber), label: s.label })),
-    async (v) => {
-      VIEWED_SEASON = Number(v);
-      await refreshData();
-    }
+
+  const seasons = DATA.seasons.map((s) => ({ value: s.seasonNumber, label: s.label }));
+  const current = seasons.find((s) => s.value === VIEWED_SEASON) || seasons[0];
+
+  const wrap = h("div", { class: "season-switcher" });
+  const trigger = h(
+    "button",
+    { type: "button", class: "season-trigger", "aria-haspopup": "true", "aria-expanded": "false" },
+    h("span", { class: "season-trigger-label" }, current ? current.label : ""),
+    h("span", { class: "season-trigger-arrow" })
   );
-  holder.appendChild(select);
+  const menu = h("div", { class: "season-menu" });
+  menu.hidden = true;
+
+  function closeMenu() {
+    menu.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+    document.removeEventListener("click", onDocClick, true);
+    document.removeEventListener("keydown", onKeyDown, true);
+  }
+  function onDocClick(e) {
+    if (!wrap.contains(e.target)) closeMenu();
+  }
+  function onKeyDown(e) {
+    if (e.key === "Escape") closeMenu();
+  }
+  trigger.addEventListener("click", () => {
+    if (menu.hidden) {
+      menu.hidden = false;
+      trigger.setAttribute("aria-expanded", "true");
+      document.addEventListener("click", onDocClick, true);
+      document.addEventListener("keydown", onKeyDown, true);
+    } else {
+      closeMenu();
+    }
+  });
+
+  for (const s of seasons) {
+    const opt = h(
+      "button",
+      { type: "button", class: "season-option" + (s.value === VIEWED_SEASON ? " active" : "") },
+      h("span", { class: "season-option-dot" }),
+      h("span", { class: "season-option-label" }, s.label)
+    );
+    opt.addEventListener("click", async () => {
+      closeMenu();
+      if (s.value !== VIEWED_SEASON) {
+        VIEWED_SEASON = s.value;
+        await refreshData();
+      }
+    });
+    menu.appendChild(opt);
+  }
+
+  wrap.appendChild(trigger);
+  wrap.appendChild(menu);
+  holder.appendChild(wrap);
 }
 
 async function loadAppData() {
