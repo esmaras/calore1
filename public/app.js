@@ -700,11 +700,16 @@ function isVotingLocked(voting) {
 // Submit Vote actually casts it.
 function renderVotingControl(voting, { onSelect, onSubmit, pendingVote, onVeto }) {
   const wrap = h("div", { class: "voting-control" });
-  if (!voting || !voting.votingOpen) {
+  if (!voting) {
     wrap.appendChild(h("span", { class: "muted" }, "—"));
     return wrap;
   }
 
+  // A resolved outcome (passed/failed/vetoed) stays visible forever, even
+  // after the off-season closes and votingOpen goes false — only the
+  // still-open voting controls below actually lock. Otherwise closing the
+  // off-season would also erase the historical record of how each item
+  // was decided.
   if (voting.status !== "open") {
     const label = voting.status === "passed" ? `Passed ${voting.yes}-${voting.no}` : voting.status === "vetoed" ? "Vetoed" : `Failed ${voting.yes}-${voting.no}`;
     wrap.appendChild(h("span", { class: "voting-pill voting-" + voting.status }, label));
@@ -713,6 +718,11 @@ function renderVotingControl(voting, { onSelect, onSubmit, pendingVote, onVeto }
       const chips = voters.map((v) => h("span", { class: "voting-pill voting-voter-" + v.vote }, v.name || "?"));
       wrap.appendChild(h("div", { class: "voting-voters" }, ...chips));
     }
+    return wrap;
+  }
+
+  if (!voting.votingOpen) {
+    wrap.appendChild(h("span", { class: "muted" }, "—"));
     return wrap;
   }
 
@@ -744,7 +754,11 @@ function renderVotingControl(voting, { onSelect, onSubmit, pendingVote, onVeto }
 function buildVotingTd(item, vetoEligible, castVoteFn, castVetoFn, idField = "id") {
   const id = item[idField];
   const open = item.voting?.status === "open";
-  const canVote = !!(CURRENT_USER?.driverId && open && !item.voting?.myVote);
+  // Once the off-season closes, `votingOpen` goes false but `status` can
+  // still read "open" for an item that never resolved — gate on both so
+  // dead vote/veto controls don't render for something the server will
+  // now reject (see loadVotingContext's offseasonEnded check).
+  const canVote = !!(CURRENT_USER?.driverId && open && item.voting?.votingOpen && !item.voting?.myVote);
   const pendingVote = pendingVoteSelections.get(id) ?? null;
   const onSelect = canVote ? (vote) => { pendingVoteSelections.set(id, vote); renderActive(); } : null;
   const onSubmit = canVote
@@ -755,8 +769,9 @@ function buildVotingTd(item, vetoEligible, castVoteFn, castVetoFn, idField = "id
     : null;
   // `vetoable`, not `open` — `open` can read true for a driver who hasn't
   // voted yet even after the item has actually resolved (see voting.js
-  // buildVotingView), and a veto can't be undone once cast.
-  const onVeto = vetoEligible && item.voting?.vetoable ? () => handleVetoClick(() => castVetoFn(id)) : null;
+  // buildVotingView), and a veto can't be undone once cast. Also gated on
+  // `votingOpen` for the same reason as `canVote` above.
+  const onVeto = vetoEligible && item.voting?.vetoable && item.voting?.votingOpen ? () => handleVetoClick(() => castVetoFn(id)) : null;
   return h("td", {}, renderVotingControl(item.voting, { onSelect, onSubmit, pendingVote, onVeto }));
 }
 
