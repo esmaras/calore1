@@ -5,6 +5,7 @@ const { requireAdmin } = require("../auth/middleware");
 const { getCurrentSeasonNumber, seasonEndedLock } = require("../db/currentSeason");
 const { assembleData } = require("../db/assemble");
 const { expandPointsTable } = require("../db/ranking");
+const { IDENTITY_FIELDS } = require("../db/identityFreeze");
 
 const router = express.Router();
 
@@ -182,15 +183,11 @@ router.post("/:seasonNumber/end", requireAdmin, async (req, res) => {
   // than re-deriving it here, since assembleData already resolves these
   // same fields for every driver in this season (and, at end-time,
   // nothing's frozen yet, so it's exactly today's live values).
+  // IDENTITY_FIELDS is shared with freezeIdentityBeforeEdit so the two
+  // can't drift apart again (teamName was once left out of this list).
   const driverIdentities = assembled.driversForViewedSeason.map((d) => ({
     driverId: d.driverId,
-    driver: d.driver,
-    driverNumber: d.driverNumber,
-    numberFont: d.numberFont,
-    numberBgShape: d.numberBgShape,
-    numberBgColor: d.numberBgColor,
-    carColor: d.carColor,
-    backstory: d.backstory,
+    ...Object.fromEntries(IDENTITY_FIELDS.map((f) => [f, d[f] ?? null])),
   }));
 
   const updated = await repo.updateItem(keys.season(seasonNumber), {

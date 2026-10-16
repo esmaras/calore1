@@ -429,11 +429,8 @@ function assembleData(items, viewedSeason, viewerDriverId = null, { isAuthentica
           return {
             season: s.seasonNumber,
             champion: champIdentity?.driver ?? null,
-            // teamName isn't part of the freeze-on-end snapshot by default
-            // (see POST /:seasonNumber/end) — but driverIdentityResolver's
-            // merge is generic, so a manually-added override (an ad-hoc
-            // production fix for one driver/season, say) still takes
-            // effect here the same way a frozen name does.
+            // teamName is frozen like every other identity field (see
+            // IDENTITY_FIELDS in server/db/identityFreeze.js).
             constructorChampion: champIdentity?.teamName ?? null,
           };
         }),

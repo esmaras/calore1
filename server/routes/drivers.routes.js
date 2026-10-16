@@ -2,6 +2,7 @@ const express = require("express");
 const repo = require("../db/repo");
 const { keys, itemTypes } = require("../db/keys");
 const { requireSelfOrAdmin } = require("../auth/middleware");
+const { freezeIdentityBeforeEdit } = require("../db/identityFreeze");
 
 const router = express.Router();
 
@@ -20,6 +21,7 @@ router.put("/:driverId", requireSelfOrAdmin("driverId"), async (req, res) => {
   }
   if (Object.keys(attrs).length === 0) return res.status(400).json({ error: "No editable fields provided" });
 
+  await freezeIdentityBeforeEdit(existing, Object.keys(attrs).filter((f) => attrs[f] !== existing[f]));
   const updated = await repo.updateItem(keys.driver(driverId), attrs);
   res.json(updated);
 });
@@ -45,6 +47,8 @@ router.put("/:driverId/car-color", requireSelfOrAdmin("driverId"), async (req, r
   if (driver.carColor === carColor) {
     return res.json(driver); // no-op, already this color
   }
+
+  await freezeIdentityBeforeEdit(driver, ["carColor"]);
 
   const transactItems = [
     {
@@ -100,6 +104,7 @@ router.put("/:driverId/driver-number", requireSelfOrAdmin("driverId"), async (re
 
   if (trimmed === "") {
     if (!driver.driverNumber) return res.json(driver); // already unset, no-op
+    await freezeIdentityBeforeEdit(driver, ["driverNumber"]);
     await repo.transactWrite([
       {
         Delete: {
@@ -127,6 +132,8 @@ router.put("/:driverId/driver-number", requireSelfOrAdmin("driverId"), async (re
   if (driver.driverNumber === trimmed) {
     return res.json(driver); // no-op, already this number
   }
+
+  await freezeIdentityBeforeEdit(driver, ["driverNumber"]);
 
   const transactItems = [
     {
