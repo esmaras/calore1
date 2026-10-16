@@ -2873,7 +2873,35 @@ function fmtAuditValue(v) {
   return String(v);
 }
 
+// Survives the tab re-render refreshData() triggers, so the result of the
+// last "Refresh site data" click stays visible.
+let lastSiteRefreshMsg = "";
+
 function renderAuditLog(container) {
+  // Reloads the server's in-memory copy of the database — needed after a
+  // change made outside the app (e.g. a scripts/oneoff/ fix), which the
+  // site otherwise won't see until its next write or restart.
+  const refreshPanel = h("div", { class: "panel" });
+  refreshPanel.appendChild(h("h2", {}, "Site Data"));
+  refreshPanel.appendChild(h("p", { class: "muted panel-note" }, "Reload the site's content from the database. Use this after a change made directly in the database (e.g. a one-off script) that isn't showing up yet."));
+  const refreshMsg = h("div", { class: "muted" }, lastSiteRefreshMsg);
+  const refreshBtn = h("button", { class: "btn" }, "Refresh site data");
+  refreshBtn.addEventListener("click", async () => {
+    refreshBtn.disabled = true;
+    refreshMsg.textContent = "Refreshing…";
+    try {
+      const { itemCount } = await apiPost("/api/admin/refresh-cache", {});
+      lastSiteRefreshMsg = `Refreshed (${itemCount} records) at ${new Date().toLocaleTimeString()}.`;
+      await refreshData();
+    } catch (err) {
+      refreshMsg.textContent = `Refresh failed: ${err.message}`;
+      refreshBtn.disabled = false;
+    }
+  });
+  refreshPanel.appendChild(refreshBtn);
+  refreshPanel.appendChild(refreshMsg);
+  container.appendChild(refreshPanel);
+
   const panel = h("div", { class: "panel" });
   panel.appendChild(h("h2", {}, "Audit Log"));
   panel.appendChild(h("p", { class: "muted panel-note" }, "Every database write, newest first — who changed what, and the before/after values."));

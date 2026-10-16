@@ -10,6 +10,16 @@ const { expandPointsTable } = require("../db/ranking");
 // — everything under /api/admin is admin-only, so no per-route check needed.
 const router = express.Router();
 
+// ---------- Site data refresh ----------
+// repo keeps the whole table cached in memory and only rescans after the
+// app's own writes, so anything written straight to DynamoDB (a one-off
+// script in scripts/oneoff/, a console edit) stays invisible until the next
+// app write or restart. This forces that rescan on demand.
+router.post("/refresh-cache", async (req, res) => {
+  const items = await repo.scanAll();
+  res.json({ itemCount: items.length });
+});
+
 // ---------- Inventory: admin-only edits to existing rows ----------
 // (Adding/removing parts or sponsors isn't wired up yet — this is just
 // enough to unblock "admin can edit the inventory".)
