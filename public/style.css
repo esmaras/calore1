@@ -414,21 +414,17 @@ tr.upgrade-row.open .upgrade-cell-card-inner {
   }
 }
 
-/* An explicit, always-reliable tap target for opening/closing a driver's
-   row — a <tr> isn't a naturally interactive element the way a real
-   <button> is, and relying on it to fire click reliably from a tap on
-   every touch browser didn't hold up in practice. Hidden on wider
-   viewports, where hovering the row already does this and a whole extra
-   column would just be clutter. */
+/* An explicit, always-reliable open/close control in each expandable
+   row's first column — see rowToggleButton in app.js. On narrow/touch
+   viewports it's a ▸ chevron button: a <tr> isn't a naturally
+   interactive element the way a real <button> is, and relying on it to
+   fire click reliably from a tap on every touch browser didn't hold up
+   in practice. On hover-capable desktops, hovering already expands the
+   row, so the same column instead holds a pin that fades in on hover
+   (hinting that a click keeps the row open) and stays lit once pinned. */
 .upgrade-row-toggle-col {
-  display: none;
   width: 1%;
   padding-right: 4px;
-}
-@media (max-width: 700px) {
-  .upgrade-row-toggle-col {
-    display: table-cell;
-  }
 }
 .upgrade-row-toggle {
   display: inline-flex;
@@ -443,13 +439,36 @@ tr.upgrade-row.open .upgrade-cell-card-inner {
   color: var(--text-dim);
   cursor: pointer;
 }
-.upgrade-row-toggle span {
+.row-toggle-chevron {
   display: inline-block;
   transition: transform 0.2s ease;
 }
-tr.upgrade-row.open .upgrade-row-toggle span {
+tr.upgrade-row.open .row-toggle-chevron {
   transform: rotate(90deg);
 }
+.row-toggle-pin { display: none; line-height: 0; }
+
+@media (hover: hover) and (min-width: 701px) {
+  .row-toggle-chevron { display: none; }
+  .row-toggle-pin { display: inline-block; transition: transform 0.15s ease; }
+  .upgrade-row-toggle {
+    border-color: transparent;
+    background: transparent;
+    opacity: 0;
+    transition: opacity 0.15s ease, color 0.15s ease;
+  }
+  tr.upgrade-row:hover .upgrade-row-toggle { opacity: 0.6; }
+  tr.upgrade-row .upgrade-row-toggle:hover,
+  tr.upgrade-row .upgrade-row-toggle:focus-visible { opacity: 1; color: var(--text); }
+  tr.upgrade-row.open .upgrade-row-toggle { opacity: 1; color: var(--accent); }
+  tr.upgrade-row.open .row-toggle-pin { transform: rotate(-30deg); }
+  tr.upgrade-row.open .row-toggle-pin svg { fill: currentColor; }
+}
+
+/* Pinned rows get an accent stripe + tint so they read as distinct from
+   a row that's only expanded because the mouse is over it. */
+tr.upgrade-row.open > td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+tr.upgrade-row.open > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
 /* Reusable "hover (or tap, on touch devices — see attachZoomCard in
    app.js) to pop up the real card art" trigger. Used on both the Upgrade

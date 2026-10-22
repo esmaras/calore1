@@ -1468,6 +1468,33 @@ function renderAddDriverForm() {
 // rather than guessing once per device is what lets both coexist without
 // fighting: a mouse's real hover state is never confused with a touch tap
 // that happens to also dispatch a synthetic hover-like event first.
+// The open/close control in an expandable .upgrade-row's first column
+// (Upgrade Tracker drivers, Season schedule tracks). Carries both a ▸
+// chevron and a pin icon — style.css shows the chevron on narrow/touch
+// viewports, where tapping it is how a row opens at all, and the pin on
+// hover-capable desktops, where hovering already expands the row and a
+// click instead pins it open. The pin only fades in while the row is
+// hovered (a hint that clicking does something) and stays lit once
+// pinned; syncRowToggle keeps its tooltip/aria state in step.
+const PIN_ICON_SVG = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>`;
+
+function rowToggleButton(ariaLabel, toggleRow) {
+  const pin = h("span", { class: "row-toggle-pin" });
+  pin.innerHTML = PIN_ICON_SVG;
+  const btn = h("button", { class: "upgrade-row-toggle", type: "button", "aria-label": ariaLabel, "aria-pressed": "false", title: "Click to keep open" },
+    h("span", { class: "row-toggle-chevron" }, "▸"), pin);
+  btn.addEventListener("click", (ev) => { ev.stopPropagation(); toggleRow(); });
+  return btn;
+}
+
+function syncRowToggle(tr) {
+  const btn = tr.querySelector(".upgrade-row-toggle");
+  if (!btn) return;
+  const open = tr.classList.contains("open");
+  btn.setAttribute("aria-pressed", String(open));
+  btn.title = open ? "Pinned open — click to unpin" : "Click to keep open";
+}
+
 function closeAllZoomWraps(except) {
   document.querySelectorAll(".upgrade-card-zoom-wrap.zoom-open").forEach((el) => {
     if (el !== except) el.classList.remove("zoom-open");
@@ -1640,6 +1667,7 @@ function renderUpgradeTracker(container) {
     const tr = h("tr", { class: "upgrade-row" });
     const toggleRow = () => {
       tr.classList.toggle("open");
+      syncRowToggle(tr);
       // Any zoomed card popup is a body-level floating element with no
       // DOM relationship to this row (see attachZoomCard) — closing on
       // any row open/close avoids one being left floating with no
@@ -1659,12 +1687,7 @@ function renderUpgradeTracker(container) {
       if (ev.target.closest("select, input, button, a, .upgrade-zoom-trigger")) return;
       toggleRow();
     });
-    const toggleBtn = h("button", { class: "upgrade-row-toggle", type: "button", "aria-label": "Toggle upgrade cards" }, h("span", {}, "▸"));
-    toggleBtn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      toggleRow();
-    });
-    tr.appendChild(h("td", { class: "upgrade-row-toggle-col" }, toggleBtn));
+    tr.appendChild(h("td", { class: "upgrade-row-toggle-col" }, rowToggleButton("Toggle upgrade cards", toggleRow)));
     tr.appendChild(h("td", {}, driverBadge(e.driver, e)));
     // A driver can pick their own sponsor and upgrade parts (admin can pick
     // anyone's); modification stays admin-only below. No two drivers can
@@ -2461,15 +2484,14 @@ function renderSeason(container) {
     const tr = h("tr", { class: "upgrade-row" });
     const toggleRow = () => {
       tr.classList.toggle("open");
+      syncRowToggle(tr);
       closeAllZoomWraps(null);
     };
     tr.addEventListener("click", (ev) => {
       if (ev.target.closest("select, input, button, a, .upgrade-zoom-trigger")) return;
       toggleRow();
     });
-    const toggleBtn = h("button", { class: "upgrade-row-toggle", type: "button", "aria-label": "Toggle track card" }, h("span", {}, "▸"));
-    toggleBtn.addEventListener("click", (ev) => { ev.stopPropagation(); toggleRow(); });
-    tr.appendChild(h("td", { class: "upgrade-row-toggle-col" }, toggleBtn));
+    tr.appendChild(h("td", { class: "upgrade-row-toggle-col" }, rowToggleButton("Toggle track card", toggleRow)));
     if (configEditable) {
       const tdNum = h("td"); tdNum.appendChild(numberInput(r.race, (v) => { r.race = v; saveSeasonField({ schedule: s.schedule }); }));
       const tdTrack = h("td");
