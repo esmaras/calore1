@@ -20,8 +20,9 @@ router.put("/points-table", requireAdmin, async (req, res) => {
 
 router.put("/:driverId", requireAdmin, async (req, res) => {
   const { driverId } = req.params;
-  const { races } = req.body || {};
+  const { races, legendRaces } = req.body || {};
   if (!Array.isArray(races)) return res.status(400).json({ error: "races must be an array" });
+  if (legendRaces != null && !Array.isArray(legendRaces)) return res.status(400).json({ error: "legendRaces must be an array" });
 
   const season = await resolveSeason(req.query.season);
   const seasonItem = await repo.getItem(keys.season(season));
@@ -47,7 +48,11 @@ router.put("/:driverId", requireAdmin, async (req, res) => {
   }
 
   const existing = await repo.getItem(keys.standings(driverId, season));
-  const item = { ...keys.standings(driverId, season), itemType: itemTypes.STANDINGS, driverId, season, races };
+  const item = { ...keys.standings(driverId, season), itemType: itemTypes.STANDINGS, driverId, season, races,
+    // Per-race "a Legend drove this car" flags (half points) — see
+    // buildStandingsRowsForSeason in server/db/ranking.js.
+    legendRaces: (legendRaces || []).map((v) => !!v),
+  };
   if (!existing) {
     const driver = await repo.getItem(keys.driver(driverId));
     if (!driver) return res.status(404).json({ error: "No such driver" });

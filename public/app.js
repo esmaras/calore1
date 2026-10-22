@@ -482,7 +482,7 @@ function saveDriverFields(driverId, fields) {
 
 function saveStandingsRow(driverId) {
   const row = DATA.standings.drivers.find((d) => d.driverId === driverId);
-  scheduleSave(`standings:${driverId}`, () => apiPut(`/api/standings/${driverId}${seasonQuery()}`, { races: row.races }));
+  scheduleSave(`standings:${driverId}`, () => apiPut(`/api/standings/${driverId}${seasonQuery()}`, { races: row.races, legendRaces: row.legendRaces || [] }));
 }
 
 function savePointsTable() {
@@ -901,10 +901,13 @@ function recomputeStandings() {
   for (const p of DATA.standings.pointsTable) lookup[p.position] = p.points;
   DATA.standings.drivers.forEach((d, i) => {
     if (!DATA.season.ended) syncLiveDriverIdentity(d, DATA.drivers[i], { teamField: "team" });
+    // Mirrors buildStandingsRowsForSeason in server/db/ranking.js — a race
+    // a Legend drove for an absent driver only earns half points, rounded down.
     let total = 0;
-    for (const pos of d.races) {
-      if (pos != null && lookup[pos] != null) total += lookup[pos];
-    }
+    d.races.forEach((pos, i) => {
+      if (pos == null || lookup[pos] == null) return;
+      total += d.legendRaces?.[i] ? Math.floor(lookup[pos] / 2) : lookup[pos];
+    });
     d.totalPoints = total;
   });
   const sorted = [...DATA.standings.drivers].sort((a, b) => {
@@ -919,6 +922,11 @@ function recomputeStandings() {
     d.position = rank;
     prev = d;
   }
+}
+
+// Asterisk marking a result where a Legend drove an absent driver's car.
+function legendMark() {
+  return h("span", { class: "legend-mark", title: "Legend substitute — half points" }, "*");
 }
 
 function renderStandings(container) {
@@ -948,9 +956,20 @@ function renderStandings(container) {
     d.races.forEach((val, i) => {
       const td = h("td");
       if (allowed) {
-        td.appendChild(numberInput(val, (v) => { d.races[i] = v; recomputeStandings(); renderActive(); saveStandingsRow(d.driverId); }));
+        const cell = h("div", { class: "race-cell-edit" });
+        cell.appendChild(numberInput(val, (v) => { d.races[i] = v; recomputeStandings(); renderActive(); saveStandingsRow(d.driverId); }));
+        // Driver missed this race and a Legend drove their car — half points.
+        cell.appendChild(h("label", { class: "legend-toggle", title: "Legend substitute (driver absent) — half points" },
+          checkboxInput(d.legendRaces?.[i], (checked) => {
+            if (!d.legendRaces) d.legendRaces = d.races.map(() => false);
+            d.legendRaces[i] = checked;
+            recomputeStandings(); renderActive(); saveStandingsRow(d.driverId);
+          }),
+          "L"));
+        td.appendChild(cell);
       } else {
         td.appendChild(document.createTextNode(val ?? "—"));
+        if (val != null && d.legendRaces?.[i]) td.appendChild(legendMark());
       }
       tr.appendChild(td);
     });
@@ -961,6 +980,12 @@ function renderStandings(container) {
   table.appendChild(tbody);
   wrap.appendChild(table);
   panel.appendChild(wrap);
+  if (allowed || DATA.standings.drivers.some((d) => d.legendRaces?.some(Boolean))) {
+    panel.appendChild(h("p", { class: "muted legend-note" },
+      allowed
+        ? "Tick L when a driver missed the race and a Legend drove their car — they receive half points (rounded down)."
+        : "* Driven by a Legend substitute — driver receives half points (rounded down)."));
+  }
   container.appendChild(panel);
 
   // Visible to everyone (so drivers can see the scoring rules), editable
@@ -1058,7 +1083,7 @@ function buildRaceResultBlock(label, raceIndex) {
     // included) rather than just { driver, pos } — driverBadge below needs
     // it as the indicator's source of truth so a past season's frozen
     // identity renders correctly instead of falling back to a live lookup.
-    .map((d) => ({ ...d, pos: d.races[raceIndex] }))
+    .map((d) => ({ ...d, pos: d.races[raceIndex], legend: !!d.legendRaces?.[raceIndex] }))
     .sort((a, b) => a.pos - b.pos);
 
   const trackName = trackFromRaceLabel(label);
@@ -1087,7 +1112,8 @@ function buildRaceResultBlock(label, raceIndex) {
     podiumRow.appendChild(
       h("div", { class: "race-podium-item" },
         h("span", { class: "race-podium-rank " + podiumClass("pos-", f.pos) }, ordinal(f.pos)),
-        driverBadge(f.driver, f))
+        driverBadge(f.driver, f),
+        f.legend ? legendMark() : null)
     );
   });
   block.appendChild(podiumRow);
@@ -1096,7 +1122,7 @@ function buildRaceResultBlock(label, raceIndex) {
     const list = h("div", { class: "race-field-list" });
     rest.forEach((f) => {
       list.appendChild(
-        h("div", { class: "race-field-row" }, h("span", { class: "race-field-pos" }, ordinal(f.pos)), driverBadge(f.driver, f))
+        h("div", { class: "race-field-row" }, h("span", { class: "race-field-pos" }, ordinal(f.pos)), driverBadge(f.driver, f), f.legend ? legendMark() : null)
       );
     });
     block.appendChild(list);
@@ -2059,6 +2085,21 @@ function expandAllButton(allExpanded, expandAll, collapseAll) {
   return btn;
 }
 
+// Sponsors are exclusive — each one can only back a single driver per
+// season, regardless of how many physical cards Count says exist (see
+// computeSponsorCompliance in server/db/priority.js). Derived from the
+// viewed season's Upgrade Tracker picks rather than a server-computed
+// count like the parts' availableCount, so a sponsor pick made this
+// session shows up here without waiting on a refetch.
+function sponsorAvailabilityCell(sponsorName) {
+  const holders = DATA.upgradeTracker.entries.filter((e) => e.sponsor === sponsorName);
+  if (holders.length === 0) return h("td", { class: "sponsor-available" }, "Available");
+  const td = h("td", { class: holders.length > 1 ? "sponsor-taken inv-depleted" : "sponsor-taken" });
+  td.appendChild(h("span", { class: "muted" }, holders.length > 1 ? "Conflict: " : "Taken by "));
+  holders.forEach((e) => td.appendChild(driverBadge(e.driver, e)));
+  return td;
+}
+
 function renderInventory(container) {
   const allowed = isAdmin();
 
@@ -2094,7 +2135,7 @@ function renderInventory(container) {
   panel2.appendChild(h("div", { class: "panel-header" }, h("h2", {}, "Sponsors"), sponsorsExpandBtn));
   const wrap2 = h("div", { class: "table-scroll" });
   const table2 = h("table");
-  table2.appendChild(h("thead", {}, h("tr", {}, h("th", { class: "inv-chevron-col" }), h("th", {}, "Name"), h("th", {}, "Type"), h("th", {}, "Count"), h("th", {}, "Funding"))));
+  table2.appendChild(h("thead", {}, h("tr", {}, h("th", { class: "inv-chevron-col" }), h("th", {}, "Name"), h("th", {}, "Type"), h("th", {}, "Count"), h("th", {}, "Funding"), h("th", {}, "Available"))));
   const tbody2 = h("tbody");
   DATA.inventory.sponsors.forEach((s) => {
     const tr = h("tr", { class: "inv-row" });
@@ -2116,6 +2157,7 @@ function renderInventory(container) {
       tr.appendChild(h("td", {}, String(s.countAvailable ?? "")));
       tr.appendChild(h("td", {}, fmtMoney(s.funding)));
     }
+    tr.appendChild(sponsorAvailabilityCell(s.name));
     tbody2.appendChild(tr);
 
     // Same click-to-expand card-art row as the Upgrade Parts table above.
@@ -2127,7 +2169,7 @@ function renderInventory(container) {
     });
     detailInner.appendChild(img);
     const detailWrap = h("div", { class: "inv-detail" }, detailInner);
-    const detailTd = h("td", { colspan: "5" }, detailWrap);
+    const detailTd = h("td", { colspan: "6" }, detailWrap);
     tbody2.appendChild(h("tr", { class: "inv-detail-row" }, detailTd));
 
     if (sponsorInvExpanded.has(s.sponsorId)) {

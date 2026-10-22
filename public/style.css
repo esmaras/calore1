@@ -1183,3 +1183,34 @@ footer.hint {
 
   .tab-btn { text-align: left; }
 }
+
+/* Legend substitute (driver absent, half points) — see legendMark() and
+   the per-race toggle in renderStandings. */
+.legend-mark {
+  color: var(--accent);
+  font-weight: 700;
+  margin-left: 2px;
+  vertical-align: super;
+  font-size: 0.8em;
+}
+.legend-note { margin: 10px 0 0; font-size: 0.85em; }
+.race-cell-edit {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.legend-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.75em;
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.legend-toggle input { margin: 0; width: auto; }
+
+/* Inventory → Sponsors "Available" column — see sponsorAvailabilityCell. */
+.sponsor-available { color: var(--good); font-weight: 600; }
+.sponsor-taken { white-space: nowrap; }
+.sponsor-taken > * + * { margin-left: 6px; }

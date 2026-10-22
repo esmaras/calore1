@@ -59,10 +59,16 @@ function buildStandingsRowsForSeason(items, seasonNumber, driverItems) {
   const rows = driverItems.map((d) => {
     const row = standingsByDriver[d.driverId] || { races: [] };
     const races = Array.from({ length: raceCount }, (_, i) => row.races?.[i] ?? null);
+    // Parallel to `races` — true where the driver missed that race and a
+    // Legend drove their car instead, which only earns them half that
+    // finish's points (rounded down). Missing entries (every result saved
+    // before this flag existed) mean the driver raced it themselves.
+    const legendRaces = Array.from({ length: raceCount }, (_, i) => !!row.legendRaces?.[i]);
     let totalPoints = 0;
-    for (const pos of races) {
-      if (pos != null && pointsLookup[pos] != null) totalPoints += pointsLookup[pos];
-    }
+    races.forEach((pos, i) => {
+      if (pos == null || pointsLookup[pos] == null) return;
+      totalPoints += legendRaces[i] ? Math.floor(pointsLookup[pos] / 2) : pointsLookup[pos];
+    });
     return {
       driverId: d.driverId,
       driver: d.driver,
@@ -78,6 +84,7 @@ function buildStandingsRowsForSeason(items, seasonNumber, driverItems) {
       numberBgColor: d.numberBgColor ?? null,
       carColor: d.carColor ?? null,
       races,
+      legendRaces,
       totalPoints,
       position: 0,
     };
