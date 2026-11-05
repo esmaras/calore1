@@ -278,6 +278,9 @@ function assembleData(items, viewedSeason, viewerDriverId = null, { isAuthentica
   const sponsorIssuesByDriver = computeSponsorCompliance(items, seasonNumber, driverItems, upgradeEntries);
   for (const entry of upgradeEntries) {
     const issues = [...(complianceIssuesByDriver.get(entry.driverId) || []), ...(sponsorIssuesByDriver.get(entry.driverId) || [])];
+    // Spending past the budget is flagged the same way as an oversubscribed
+    // pick: the save still goes through, the row just shows as non-compliant.
+    if (entry.remainingBudget < 0) issues.push({ overBudget: -entry.remainingBudget });
     entry.outOfCompliance = issues.length > 0;
     entry.complianceIssues = issues;
   }

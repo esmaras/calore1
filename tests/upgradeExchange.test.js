@@ -235,3 +235,13 @@ test("after the next race: locked again", async () => {
   assert.equal(res.status, 400);
   assert.match(res.body.error, /closed/);
 });
+
+test("a negative remaining budget is flagged like an upgrade conflict", () => {
+  const items = baseItems({ seasonExtra: { baseTeamBudget: 150000 } });
+  items.push(trackerRow("d1", [1, 2, null])); // 2 x 100,000 against 150,000
+  items.push(trackerRow("d2", [3, null, null])); // within budget
+  const byId = Object.fromEntries(assembleData(items, SEASON).upgradeTracker.entries.map((e) => [e.driverId, e]));
+  assert.equal(byId.d1.outOfCompliance, true);
+  assert.deepEqual(byId.d1.complianceIssues, [{ overBudget: 50000 }]);
+  assert.equal(byId.d2.outOfCompliance, false);
+});

@@ -1656,6 +1656,12 @@ function recomputeUpgradeTracker() {
     e.budget = (DATA.season.baseTeamBudget || 0) + computeSponsorFunding(e.sponsor) + (e.modification || 0) + (e.carryover || 0) + (e.midSeasonFunding || 0);
     const spent = e.upgrades.reduce((sum, p) => sum + (p != null ? computeUpgradeCost(p) : 0), 0);
     e.remainingBudget = e.budget - spent;
+    // Mirrors the server's over-budget compliance issue (see assemble.js) so
+    // the row flags or clears straight away on edit, before the save returns.
+    // Conflict issues stay as the server last sent them.
+    e.complianceIssues = (e.complianceIssues || []).filter((issue) => issue.overBudget == null);
+    if (e.remainingBudget < 0) e.complianceIssues.push({ overBudget: -e.remainingBudget });
+    e.outOfCompliance = e.complianceIssues.length > 0;
   });
 }
 
@@ -1869,6 +1875,9 @@ function renderUpgradeTracker(container) {
     if (e.outOfCompliance) {
       const message = e.complianceIssues
         .map((issue) => {
+          if (issue.overBudget != null) {
+            return `Over budget by ${fmtMoney(issue.overBudget)}. The selected upgrades cost more than this team's budget.`;
+          }
           if (issue.sponsor != null) {
             return `Sponsor "${issue.sponsor}" is oversubscribed — ${issue.higherPriorityCount} higher-priority driver(s) also claimed it.`;
           }
