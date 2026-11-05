@@ -1233,3 +1233,8 @@ footer.hint {
 .sponsor-available { color: var(--good); font-weight: 600; }
 .sponsor-taken { white-space: nowrap; }
 .sponsor-taken > * + * { margin-left: 6px; }
+
+/* Upgrade Exchange (race-1 lock / mid-season break) — status line on the
+   Upgrade Tracker and small helper text under budget / break inputs. */
+.exchange-status { border-left: 3px solid var(--accent, #c9a227); padding-left: 10px; }
+.exchange-funding-note { font-size: 0.8em; white-space: nowrap; }

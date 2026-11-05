@@ -1,18 +1,14 @@
 const { itemTypes } = require("./keys");
 const { buildStandingsRowsForSeason } = require("./ranking");
+const { computeSeasonPhase, midwayReached } = require("./midSeason");
 
 // A driver's upgrade-pick priority for `seasonNumber` is based on standing
 // — but *whose* standing depends on how far into the season we are.
-// Before any race in `seasonNumber` has a result recorded, there's nothing
-// to prioritize off yet, so it falls back to the previous season's final
-// standings (the largest existing season number below this one — seasons
-// are always sequential, but this avoids assuming seasonNumber - 1
-// specifically exists). Once a race in `seasonNumber` has happened,
-// priority switches to that season's own live standings instead — drivers
-// can change upgrade parts mid-season, and that mid-season swap should be
-// prioritized by how the season is actually going right now, not by
-// whatever happened last year. Worse standing (bigger position number)
-// picks first.
+// Until this season reaches its mid-season break, that's the previous
+// season's final standings (the largest existing season number below this
+// one). From the break on, it's this season's standings through the break
+// race (see the comment inside the function). Worse standing (bigger
+// position number) picks first.
 // A driver who didn't exist yet as of the basis season (joined after it —
 // i.e. a brand-new driver added for a new season) has no standing to base
 // anything on at all, so they always rank lowest priority, for upgrades
@@ -30,13 +26,18 @@ const { buildStandingsRowsForSeason } = require("./ranking");
 // instead — the opposite fairness call, since a sponsor is closer to a
 // reward for winning than a handicap-balancing mechanic.
 function computePriorityOrder(items, seasonNumber, driverItems, { reversed = false } = {}) {
-  const currentSeasonHasResults = items.some(
-    (i) => i.itemType === itemTypes.STANDINGS && i.season === seasonNumber && (i.races || []).some((r) => r != null)
-  );
-
+  // Once this season reaches its mid-season break (see
+  // server/db/midSeason.js), priority comes from this season's standings
+  // as they stood through the break race — frozen, so later races can't
+  // reshuffle who wins a mid-season conflict. Before that (including the
+  // locked stretch after race 1, when picks can't change anyway) it stays
+  // on the prior season's final standings, same as at season start.
+  const phaseInfo = computeSeasonPhase(items, seasonNumber);
   let basisSeasonNumber = null;
-  if (currentSeasonHasResults) {
+  let throughRace = null;
+  if (midwayReached(phaseInfo.phase)) {
     basisSeasonNumber = seasonNumber;
+    throughRace = phaseInfo.midwayRace;
   } else {
     const priorSeasonNumbers = items
       .filter((i) => i.itemType === itemTypes.SEASON && i.seasonNumber < seasonNumber)
@@ -47,7 +48,7 @@ function computePriorityOrder(items, seasonNumber, driverItems, { reversed = fal
   const rosterOrderById = Object.fromEntries(driverItems.map((d, i) => [d.driverId, d.order ?? i]));
   const positionById = {};
   if (basisSeasonNumber != null) {
-    for (const row of buildStandingsRowsForSeason(items, basisSeasonNumber, driverItems)) {
+    for (const row of buildStandingsRowsForSeason(items, basisSeasonNumber, driverItems, { throughRace })) {
       positionById[row.driverId] = row.position;
     }
   }
@@ -97,9 +98,14 @@ function computeCompliance(items, seasonNumber, driverItems, upgradeEntries, upg
   const countAvailableByPart = Object.fromEntries(upgradeParts.map((u) => [u.partNumber, u.countAvailable || 0]));
   const partTypeByNumber = Object.fromEntries(upgradeParts.map((u) => [u.partNumber, u.type]));
 
+  // From the mid-season break on, "retained" means held going into the
+  // window (midSeasonBaseline, or the current picks if the driver never
+  // touched their row during it) rather than carried over from last season.
+  const atMidway = midwayReached(computeSeasonPhase(items, seasonNumber).phase);
   const claimsByPart = {};
   for (const entry of upgradeEntries) {
-    const carriedOver = new Set(entry.carryoverUpgrades || []);
+    const retainedSource = atMidway ? (entry.midSeasonBaseline ?? entry.upgrades) : entry.carryoverUpgrades;
+    const carriedOver = new Set(retainedSource || []);
     for (const p of entry.upgrades || []) {
       if (p == null) continue;
       // A part still sitting in this driver's carryoverUpgrades was never

@@ -41,7 +41,10 @@ function rankStandings(rows) {
 // list — shared by assemble.js (the viewed season) and priority.js (an
 // earlier season, to compute next-season upgrade-pick priority) so scoring
 // logic only lives in one place.
-function buildStandingsRowsForSeason(items, seasonNumber, driverItems) {
+// `throughRace` (1-based, optional) scores only races 1..throughRace —
+// used to rank the season as it stood at the mid-season break (see
+// server/db/midSeason.js), so later races can't change who qualified.
+function buildStandingsRowsForSeason(items, seasonNumber, driverItems, { throughRace = null } = {}) {
   const seasonItem = items.find((i) => i.itemType === itemTypes.SEASON && i.seasonNumber === seasonNumber) || {};
   const pointsTable = seasonItem.pointsTable || [];
   const pointsLookup = Object.fromEntries(pointsTable.map((p) => [p.position, p.points]));
@@ -58,7 +61,7 @@ function buildStandingsRowsForSeason(items, seasonNumber, driverItems) {
   const raceCount = (seasonItem.schedule || []).length;
   const rows = driverItems.map((d) => {
     const row = standingsByDriver[d.driverId] || { races: [] };
-    const races = Array.from({ length: raceCount }, (_, i) => row.races?.[i] ?? null);
+    const races = Array.from({ length: raceCount }, (_, i) => (throughRace != null && i >= throughRace ? null : row.races?.[i] ?? null));
     // Parallel to `races` — true where the driver missed that race and a
     // Legend drove their car instead, which only earns them half that
     // finish's points (rounded down). Missing entries (every result saved

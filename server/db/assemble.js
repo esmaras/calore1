@@ -2,6 +2,7 @@ const { itemTypes } = require("./keys");
 const { buildStandingsRowsForSeason, driversAsOfSeason } = require("./ranking");
 const { computeCompliance, computeSponsorCompliance } = require("./priority");
 const { buildVotingView, championDriverId, resolveRequiredYes } = require("./voting");
+const { resolveRules, computeSeasonPhase, midwayReached, computeMidSeasonEligible, countSwaps } = require("./midSeason");
 
 function strip(item) {
   if (!item) return item;
@@ -215,11 +216,20 @@ function assembleData(items, viewedSeason, viewerDriverId = null, { isAuthentica
   // ---- upgrade tracker ----
   const legendItem = one(itemTypes.UPGRADETRACKER_LEGEND) || {};
   const carryoverByDriverId = computeCarryoverByDriver(items, seasonNumber, allSeasonItems);
+  // In-season upgrade exchange (race-1 lock + mid-season swap/funding) —
+  // see server/db/midSeason.js. All derived, nothing stored except each
+  // row's midSeasonBaseline (set on its first write during the window).
+  const exchangeRules = resolveRules(seasonItem);
+  const exchangePhase = computeSeasonPhase(items, seasonNumber);
+  const midSeasonEligibleIds = computeMidSeasonEligible(items, seasonNumber, driverItems, exchangeRules.midSeasonSwapTeams, exchangePhase);
   const upgradeEntries = driverIds.map((driverId) => {
     const driver = effectiveDriverById[driverId];
     const row = upgradeTrackerByDriver[driverId] || { sponsor: null, upgrades: [], modification: 0 };
     const carryover = carryoverByDriverId[driverId] || 0;
-    const budget = (seasonItem.baseTeamBudget || 0) + sponsorFunding(sponsors, row.sponsor) + (row.modification || 0) + carryover;
+    const midSeasonEligible = midSeasonEligibleIds.has(driverId);
+    const midSeasonFunding = midSeasonEligible && midwayReached(exchangePhase.phase) ? exchangeRules.midSeasonFunding : 0;
+    const midSeasonBaseline = Array.isArray(row.midSeasonBaseline) ? row.midSeasonBaseline : null;
+    const budget = (seasonItem.baseTeamBudget || 0) + sponsorFunding(sponsors, row.sponsor) + (row.modification || 0) + carryover + midSeasonFunding;
     const spent = (row.upgrades || []).reduce((sum, p) => sum + (p != null ? computeUpgradeCost(upgradeParts, p) : 0), 0);
     // swapAllowance/carryoverUpgrades are frozen onto this row the moment
     // the season was created (see createNextSeason in season.routes.js) —
@@ -248,6 +258,10 @@ function assembleData(items, viewedSeason, viewerDriverId = null, { isAuthentica
       // part from a freshly-claimed one — see its own comment for why that
       // distinction matters for priority.
       carryoverUpgrades: Array.isArray(row.carryoverUpgrades) ? row.carryoverUpgrades : null,
+      midSeasonEligible,
+      midSeasonFunding,
+      midSeasonBaseline,
+      midSeasonSwapsUsed: countSwaps(midSeasonBaseline, row.upgrades),
     };
   });
 
@@ -372,7 +386,17 @@ function assembleData(items, viewedSeason, viewerDriverId = null, { isAuthentica
       racesThisSeason: seasonItem.racesThisSeason,
       upgradeSlots: seasonItem.upgradeSlots,
       trackSelectionMethod: seasonItem.trackSelectionMethod,
-      midSeasonBreakAfterRace: seasonItem.midSeasonBreakAfterRace,
+      // The admin's raw setting (null = "use half the schedule"); the
+      // resolved race is upgradeExchange.midwayRace below.
+      midSeasonBreakAfterRace: seasonItem.midSeasonBreakAfterRace ?? null,
+      upgradeExchange: {
+        ...exchangePhase,
+        lockUpgradesAfterFirstRace: exchangeRules.lockUpgradesAfterFirstRace,
+        teams: exchangeRules.midSeasonSwapTeams,
+        maxSwaps: exchangeRules.midSeasonMaxSwaps,
+        funding: exchangeRules.midSeasonFunding,
+        eligibleDriverIds: [...midSeasonEligibleIds],
+      },
       legends: seasonItem.legends,
       baseTeamBudget: seasonItem.baseTeamBudget,
       schedule: seasonItem.schedule || [],

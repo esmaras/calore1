@@ -3,6 +3,18 @@ const repo = require("../db/repo");
 const { keys, itemTypes } = require("../db/keys");
 const { requireAdmin, requireSelfOrAdmin } = require("../auth/middleware");
 const { resolveSeason, seasonEndedLock } = require("../db/currentSeason");
+const { driversAsOfSeason } = require("../db/ranking");
+const { resolveRules, computeSeasonPhase, midwayReached, computeMidSeasonEligible, countSwaps } = require("../db/midSeason");
+
+// Held parts as a sorted list of numbers — slot order and empty slots
+// don't count as a change.
+function partSet(upgrades) {
+  return (upgrades || []).filter((p) => p != null).map(Number).sort((a, b) => a - b);
+}
+function sameParts(a, b) {
+  const x = partSet(a), y = partSet(b);
+  return x.length === y.length && x.every((v, i) => v === y[i]);
+}
 
 const router = express.Router();
 
@@ -78,6 +90,44 @@ router.put("/:driverId", requireSelfOrAdmin("driverId"), async (req, res) => {
   const existing = (await repo.getItem(keys.upgradeTracker(driverId, season))) || { sponsor: null, upgrades: [], modification: 0 };
 
   const nextUpgrades = upgrades !== undefined ? upgrades : existing.upgrades;
+  const nextSponsor = sponsor !== undefined ? sponsor : existing.sponsor;
+
+  // In-season upgrade exchange (see server/db/midSeason.js). Admin is
+  // always exempt so they can fix mistakes; the limits apply to drivers.
+  const all = await repo.getAll();
+  const rules = resolveRules(seasonItem);
+  const phaseInfo = computeSeasonPhase(all, season);
+  const { phase } = phaseInfo;
+  const upgradesChanged = !sameParts(existing.upgrades, nextUpgrades);
+  const sponsorChanged = (existing.sponsor || null) !== (nextSponsor || null);
+  // The parts this driver held going into the mid-season window, frozen on
+  // the first write during it (by anyone) — the race-1 lock means the
+  // stored picks at that moment are exactly what they raced the first half on.
+  let midSeasonBaseline = Array.isArray(existing.midSeasonBaseline) ? existing.midSeasonBaseline : null;
+  if (phase === "midseasonWindow" && !midSeasonBaseline) midSeasonBaseline = existing.upgrades || [];
+
+  if (!isAdmin && rules.lockUpgradesAfterFirstRace) {
+    if (phase === "locked" || phase === "postMidseason") {
+      const when = phase === "locked"
+        ? `Race results have been posted — upgrade and sponsor changes are locked until the mid-season break (after race ${phaseInfo.midwayRace ?? "?"}).`
+        : "The mid-season exchange has closed — upgrade and sponsor changes are locked for the rest of the season.";
+      if (upgradesChanged || sponsorChanged) return res.status(400).json({ error: when });
+    } else if (phase === "midseasonWindow" && upgradesChanged) {
+      const allDrivers = all.filter((i) => i.itemType === itemTypes.DRIVER).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      const eligible = computeMidSeasonEligible(all, season, driversAsOfSeason(allDrivers, season), rules.midSeasonSwapTeams, phaseInfo);
+      if (!eligible.has(driverId)) {
+        return res.status(400).json({
+          error: `Only the bottom ${rules.midSeasonSwapTeams} teams can swap upgrade cards at the mid-season break. You can still change your sponsor.`,
+        });
+      }
+      const swaps = countSwaps(partSet(midSeasonBaseline), partSet(nextUpgrades));
+      if (swaps > rules.midSeasonMaxSwaps) {
+        return res.status(400).json({
+          error: `You can only swap ${rules.midSeasonMaxSwaps} upgrade card${rules.midSeasonMaxSwaps === 1 ? "" : "s"} at the mid-season break — this would swap ${swaps}.`,
+        });
+      }
+    }
+  }
 
   // Off-season catch-up: a driver whose new-season row was seeded from
   // what they finished the prior season holding (see createNextSeason in
@@ -89,7 +139,9 @@ router.put("/:driverId", requireSelfOrAdmin("driverId"), async (req, res) => {
   // parts are no longer present," not array-position diffing, so
   // reordering picks or swapping two held parts' slots never counts
   // against the limit.
-  if (Array.isArray(existing.carryoverUpgrades) && existing.swapAllowance != null) {
+  // Stops applying once the mid-season break is reached — from then on the
+  // mid-season swap limit (above) is the one that counts.
+  if (!midwayReached(phase) && Array.isArray(existing.carryoverUpgrades) && existing.swapAllowance != null) {
     const swapsUsed = existing.carryoverUpgrades.filter((p) => p != null && !nextUpgrades.includes(p)).length;
     if (swapsUsed > existing.swapAllowance) {
       return res.status(400).json({
@@ -103,11 +155,12 @@ router.put("/:driverId", requireSelfOrAdmin("driverId"), async (req, res) => {
     itemType: itemTypes.UPGRADETRACKER,
     driverId,
     season,
-    sponsor: sponsor !== undefined ? sponsor : existing.sponsor,
+    sponsor: nextSponsor,
     upgrades: nextUpgrades,
     modification: isAdmin && modification !== undefined ? modification : existing.modification,
     carryoverUpgrades: existing.carryoverUpgrades ?? null,
     swapAllowance: existing.swapAllowance ?? null,
+    midSeasonBaseline,
   };
   await repo.putItem(item);
   res.json(item);

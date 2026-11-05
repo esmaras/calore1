@@ -6,6 +6,7 @@ const { getCurrentSeasonNumber, seasonEndedLock } = require("../db/currentSeason
 const { assembleData } = require("../db/assemble");
 const { expandPointsTable } = require("../db/ranking");
 const { IDENTITY_FIELDS } = require("../db/identityFreeze");
+const { DEFAULT_RULES } = require("../db/midSeason");
 
 const router = express.Router();
 
@@ -20,6 +21,11 @@ const EDITABLE_FIELDS = [
   "schedule",
   "allowedTiers",
   "disallowedTypes",
+  // In-season upgrade exchange rules — see server/db/midSeason.js.
+  "lockUpgradesAfterFirstRace",
+  "midSeasonSwapTeams",
+  "midSeasonMaxSwaps",
+  "midSeasonFunding",
 ];
 
 // The scoring lookup table (position -> points) is a sensible default for
@@ -70,6 +76,7 @@ async function createNextSeason({ label }) {
     // wanting to configure each (which tiers ARE in, which types are OUT).
     allowedTiers: [],
     disallowedTypes: [],
+    ...DEFAULT_RULES,
   };
   await repo.putItem(item);
 

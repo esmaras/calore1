@@ -529,6 +529,18 @@ function saveSeasonField(fields) {
   scheduleSave("season", () => apiPut(`/api/season/${VIEWED_SEASON}`, fields));
 }
 
+// Upgrade Exchange settings: keyed per field (so editing two in quick
+// succession doesn't debounce one away) and followed by a refresh, since
+// the phase, break race, eligible teams and budgets are all recomputed
+// server-side from these.
+function saveExchangeField(fields) {
+  const key = `season-exchange:${Object.keys(fields).join(",")}`;
+  scheduleSave(key, async () => {
+    await apiPut(`/api/season/${VIEWED_SEASON}`, fields);
+    await refreshData();
+  });
+}
+
 function createSeason(label) {
   return apiPost("/api/season", { label });
 }
@@ -1641,10 +1653,55 @@ function recomputeUpgradeTracker() {
     // the server last sent (live-computed from the prior season, or a
     // frozen snapshot if that season's ended); this just keeps it
     // folded into the locally-recomputed budget after a sponsor/modification edit.
-    e.budget = (DATA.season.baseTeamBudget || 0) + computeSponsorFunding(e.sponsor) + (e.modification || 0) + (e.carryover || 0);
+    e.budget = (DATA.season.baseTeamBudget || 0) + computeSponsorFunding(e.sponsor) + (e.modification || 0) + (e.carryover || 0) + (e.midSeasonFunding || 0);
     const spent = e.upgrades.reduce((sum, p) => sum + (p != null ? computeUpgradeCost(p) : 0), 0);
     e.remainingBudget = e.budget - spent;
   });
+}
+
+// In-season upgrade exchange (race-1 lock + mid-season swap) — the server
+// derives the phase (see server/db/midSeason.js) and enforces it; these
+// just decide which cells render as editable so drivers aren't offered a
+// pick the server would reject.
+function upgradeExchange() {
+  return DATA.season.upgradeExchange || { phase: "preseason", lockUpgradesAfterFirstRace: false };
+}
+
+function exchangeAllows(e, what) {
+  if (DATA.season.ended || !isSelfOrAdmin(e.driverId)) return false;
+  if (isAdmin()) return true;
+  const ex = upgradeExchange();
+  if (!ex.lockUpgradesAfterFirstRace || ex.phase === "preseason") return true;
+  if (ex.phase === "midseasonWindow") return what === "sponsor" || !!e.midSeasonEligible;
+  return false;
+}
+
+function countSwapsClient(baseline, upgrades) {
+  return (baseline || []).filter((p) => p != null && !upgrades.some((u) => u != null && Number(u) === Number(p))).length;
+}
+
+function upgradeExchangeStatusText() {
+  const ex = upgradeExchange();
+  if (DATA.season.ended) return null;
+  const midway = ex.midwayRace != null ? `race ${ex.midwayRace}` : "the mid-season break";
+  const perks = `swap up to ${ex.maxSwaps} upgrade card${ex.maxSwaps === 1 ? "" : "s"} and receive ${fmtMoney(ex.funding)} in extra funding`;
+  if (!ex.lockUpgradesAfterFirstRace) {
+    return ex.phase === "midseasonWindow" || ex.phase === "postMidseason"
+      ? `Upgrades are not locked this season. The bottom ${ex.teams} teams after ${midway} receive ${fmtMoney(ex.funding)} in extra funding.`
+      : null;
+  }
+  switch (ex.phase) {
+    case "preseason":
+      return `Upgrade and sponsor picks are open until the first race results are posted. After that, they lock until the mid-season break (after ${midway}).`;
+    case "locked":
+      return `Race results are in, so upgrade and sponsor picks are locked. At the mid-season break (after ${midway}), the bottom ${ex.teams} teams can ${perks}, and every team can change its sponsor.`;
+    case "midseasonWindow":
+      return `Mid-season break: the bottom ${ex.teams} teams in the standings through ${midway} can ${perks}. Every team can change its sponsor. The window closes when the next race's results are posted.`;
+    case "postMidseason":
+      return "The mid-season exchange has closed. Upgrade and sponsor picks are locked for the rest of the season.";
+    default:
+      return null;
+  }
 }
 
 function renderUpgradeTracker(container) {
@@ -1654,6 +1711,8 @@ function renderUpgradeTracker(container) {
   panel.appendChild(h("h2", {}, "Upgrade Tracker — Current Season"));
   if (DATA.upgradeTracker.rule) panel.appendChild(h("p", { class: "muted panel-note" }, DATA.upgradeTracker.rule));
   if (!admin) panel.appendChild(h("p", { class: "muted panel-note" }, "Modification is managed by the league admin. Drivers can select their own sponsor and upgrade parts below."));
+  const exchangeText = upgradeExchangeStatusText();
+  if (exchangeText) panel.appendChild(h("p", { class: "panel-note exchange-status" }, exchangeText));
   const wrap = h("div", { class: "table-scroll" });
   const table = h("table");
   const headRow = h("tr", {}, h("th", { class: "upgrade-row-toggle-col" }), h("th", {}, "Driver"), h("th", {}, "Sponsor"), h("th", {}, "Budget"), h("th", {}, "Carryover"), h("th", {}, "Swaps"));
@@ -1695,10 +1754,19 @@ function renderUpgradeTracker(container) {
     // conflicting pick still saves and shows up as the same "!" row flag
     // (see e.complianceIssues, computeSponsorCompliance in
     // server/db/priority.js) rather than being blocked outright.
-    const canPickUpgrades = isSelfOrAdmin(e.driverId) && !DATA.season.ended;
+    // Gated by the in-season exchange rules too (see exchangeAllows) —
+    // locked after race 1, reopened at the mid-season break for sponsors
+    // (everyone) and upgrades (bottom-X teams only). Admin is exempt.
+    const canPickUpgrades = exchangeAllows(e, "upgrades");
+    const canPickSponsor = exchangeAllows(e, "sponsor");
+    const ex = upgradeExchange();
+    const midwayReached = ex.phase === "midseasonWindow" || ex.phase === "postMidseason";
+    // What this driver held going into the window — the server freezes it
+    // on the first write during the window; until then it's the saved picks.
+    const swapBaseline = e.midSeasonBaseline || [...e.upgrades];
     const sponsorTd = h("td");
     const sponsorCell = h("div", { class: "upgrade-cell" });
-    if (canPickUpgrades) {
+    if (canPickSponsor) {
       sponsorCell.appendChild(selectInput(e.sponsor, ["", ...sponsorNames], (v) => { e.sponsor = v || null; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
     } else {
       // Single line, never wrapped — a read-only label that wraps to 2
@@ -1725,7 +1793,9 @@ function renderUpgradeTracker(container) {
     }
     sponsorTd.appendChild(sponsorCell);
     tr.appendChild(sponsorTd);
-    tr.appendChild(h("td", { class: "cell-computed" }, fmtMoney(e.budget)));
+    const budgetTd = h("td", { class: "cell-computed" }, fmtMoney(e.budget));
+    if (e.midSeasonFunding) budgetTd.appendChild(h("div", { class: "muted exchange-funding-note" }, `incl. ${fmtMoney(e.midSeasonFunding)} mid-season`));
+    tr.appendChild(budgetTd);
     // Rolled forward from the prior season's remaining budget + winnings —
     // computed, not editable by anyone (see computeCarryoverByDriver in
     // server/db/assemble.js).
@@ -1736,12 +1806,30 @@ function renderUpgradeTracker(container) {
     // out for something else, vs. how many they're allowed to swap. No
     // limit at all (a fresh season, or a driver with no prior-season row)
     // shows as "—".
-    tr.appendChild(h("td", { class: "cell-computed" }, e.swapAllowance != null ? `${e.swapsUsed}/${e.swapAllowance}` : "—"));
+    // From the mid-season break on, eligible (bottom-X) rows show their
+    // mid-season swaps instead.
+    let swapsText = e.swapAllowance != null ? `${e.swapsUsed}/${e.swapAllowance}` : "—";
+    if (midwayReached && e.midSeasonEligible) swapsText = `${e.midSeasonSwapsUsed || 0}/${ex.maxSwaps} mid-season`;
+    tr.appendChild(h("td", { class: "cell-computed" }, swapsText));
     e.upgrades.forEach((val, i) => {
       const td = h("td");
       const cell = h("div", { class: "upgrade-cell" });
       if (canPickUpgrades) {
-        cell.appendChild(upgradeSelect(val, (v) => { e.upgrades[i] = v; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
+        cell.appendChild(upgradeSelect(val, (v) => {
+          // Same limit the server enforces, checked up front so the row
+          // error shows instantly instead of after a rejected save.
+          if (!isAdmin() && ex.lockUpgradesAfterFirstRace && ex.phase === "midseasonWindow") {
+            const next = [...e.upgrades];
+            next[i] = v;
+            const swaps = countSwapsClient(swapBaseline, next);
+            if (swaps > ex.maxSwaps) {
+              upgradeTrackerRowErrors.set(e.driverId, `You can only swap ${ex.maxSwaps} upgrade card${ex.maxSwaps === 1 ? "" : "s"} at the mid-season break — this would swap ${swaps}.`);
+              renderActive();
+              return;
+            }
+          }
+          e.upgrades[i] = v; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId);
+        }));
       } else {
         const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(val));
         // Same single-line fix as the sponsor cell above.
@@ -2447,7 +2535,6 @@ function renderSeason(container) {
     addKV("Races this season", numberInput(s.racesThisSeason, (v) => { s.racesThisSeason = v; saveSeasonField({ racesThisSeason: v }); }));
     addKV("Upgrade slots this season", numberInput(s.upgradeSlots, (v) => { s.upgradeSlots = v; saveSeasonField({ upgradeSlots: v }); normalizeData(); }));
     addKV("Track selection method", textInput(s.trackSelectionMethod, (v) => { s.trackSelectionMethod = v; saveSeasonField({ trackSelectionMethod: v }); }));
-    addKV("Mid-season break after race #", numberInput(s.midSeasonBreakAfterRace, (v) => { s.midSeasonBreakAfterRace = v; saveSeasonField({ midSeasonBreakAfterRace: v }); }));
     addKV("Legends enabled", selectInput(s.legends, ["Yes", "No"], (v) => { s.legends = v; saveSeasonField({ legends: v }); }));
     addKV("Base team budget", numberInput(s.baseTeamBudget, (v) => { s.baseTeamBudget = v; saveSeasonField({ baseTeamBudget: v }); }));
   } else {
@@ -2455,12 +2542,13 @@ function renderSeason(container) {
     addKV("Races this season", h("div", {}, String(s.racesThisSeason ?? "")));
     addKV("Upgrade slots this season", h("div", {}, String(s.upgradeSlots ?? "")));
     addKV("Track selection method", h("div", {}, s.trackSelectionMethod || ""));
-    addKV("Mid-season break after race #", h("div", {}, String(s.midSeasonBreakAfterRace ?? "")));
     addKV("Legends enabled", h("div", {}, s.legends || ""));
     addKV("Base team budget", h("div", {}, fmtMoney(s.baseTeamBudget)));
   }
   panel.appendChild(kv);
   container.appendChild(panel);
+
+  renderUpgradeExchangePanel(container, configEditable);
 
   const panel2 = h("div", { class: "panel" });
   panel2.appendChild(h("h2", {}, "Race Schedule"));
@@ -2523,6 +2611,67 @@ function renderSeason(container) {
     panel2.appendChild(addBtn);
   }
   container.appendChild(panel2);
+}
+
+// In-season upgrade exchange rules (see server/db/midSeason.js): the race-1
+// lock and the mid-season break swap/funding for the bottom-X teams. The
+// break race is admin-set; blank means half the schedule, rounded up.
+function renderUpgradeExchangePanel(container, configEditable) {
+  const s = DATA.season;
+  const ex = upgradeExchange();
+  const panel = h("div", { class: "panel" });
+  panel.appendChild(h("h2", {}, "Upgrade Exchange"));
+  panel.appendChild(h("p", { class: "muted panel-note" },
+    "Once the first race results are posted, drivers can't change their upgrade cards or sponsor. At the mid-season break, the bottom teams in the standings (through the break race) can swap a limited number of upgrade cards and receive extra funding, and every team can change its sponsor. The window closes when the next race's results are posted."
+  ));
+  const kv = h("div", { class: "kv-grid" });
+  const addKV = (label, el) => { kv.appendChild(h("label", {}, label)); kv.appendChild(el); };
+  // Computed locally from the schedule (not ex.raceCount) so adding or
+  // removing a race below updates this immediately, before any refresh.
+  const raceCount = (s.schedule || []).length;
+  const autoRace = raceCount >= 2 ? Math.ceil(raceCount / 2) : null;
+  const setRace = Number.isInteger(s.midSeasonBreakAfterRace) && s.midSeasonBreakAfterRace >= 1 && s.midSeasonBreakAfterRace <= raceCount ? s.midSeasonBreakAfterRace : null;
+  const breakRace = setRace ?? autoRace;
+  const autoText = autoRace != null ? `auto: race ${autoRace} of ${raceCount}` : "add at least 2 races";
+  const breakSummary = breakRace != null
+    ? `After race ${breakRace} of ${raceCount}${setRace == null ? " (auto, half the schedule)" : ""}`
+    : "Not set (add at least 2 races)";
+
+  if (configEditable) {
+    addKV("Lock upgrade changes after first race results", selectInput(ex.lockUpgradesAfterFirstRace ? "Yes" : "No", ["Yes", "No"], (v) => {
+      saveExchangeField({ lockUpgradesAfterFirstRace: v === "Yes" });
+    }));
+    const breakInput = numberInput(s.midSeasonBreakAfterRace, (v) => { s.midSeasonBreakAfterRace = v; saveExchangeField({ midSeasonBreakAfterRace: v }); });
+    breakInput.setAttribute("min", "1");
+    breakInput.setAttribute("placeholder", autoText);
+    addKV("Mid-season break after race #", h("div", {}, breakInput, h("div", { class: "muted exchange-funding-note" }, breakSummary)));
+    addKV("Teams eligible for mid-season swap (bottom)", numberInput(ex.teams, (v) => saveExchangeField({ midSeasonSwapTeams: v == null ? null : Math.max(0, Math.floor(v)) })));
+    addKV("Max upgrade swaps", numberInput(ex.maxSwaps, (v) => saveExchangeField({ midSeasonMaxSwaps: v == null ? null : Math.max(0, Math.floor(v)) })));
+    addKV("Mid-season funding", numberInput(ex.funding, (v) => saveExchangeField({ midSeasonFunding: v == null ? null : Math.max(0, v) })));
+  } else {
+    addKV("Lock upgrade changes after first race results", h("div", {}, ex.lockUpgradesAfterFirstRace ? "Yes" : "No"));
+    addKV("Mid-season break", h("div", {}, breakSummary));
+    addKV("Teams eligible for mid-season swap (bottom)", h("div", {}, String(ex.teams ?? "")));
+    addKV("Max upgrade swaps", h("div", {}, String(ex.maxSwaps ?? "")));
+    addKV("Mid-season funding", h("div", {}, fmtMoney(ex.funding)));
+  }
+  const phaseLabel = {
+    preseason: "Open: no race results yet",
+    locked: ex.lockUpgradesAfterFirstRace ? "Locked: waiting for the mid-season break" : "In progress",
+    midseasonWindow: "Mid-season window open",
+    postMidseason: "Mid-season exchange closed",
+  }[ex.phase] || "";
+  addKV("Current status", h("div", { class: "cell-computed" }, s.ended ? "Season ended" : phaseLabel));
+  if (ex.eligibleDriverIds?.length) {
+    const list = h("div", { style: "display:flex; gap:8px; flex-wrap:wrap;" });
+    for (const id of ex.eligibleDriverIds) {
+      const entry = DATA.upgradeTracker.entries.find((e) => e.driverId === id);
+      if (entry) list.appendChild(driverBadge(entry.driver, entry));
+    }
+    addKV("Qualifying teams", list);
+  }
+  panel.appendChild(kv);
+  container.appendChild(panel);
 }
 
 // Passing threshold for one vote type (FICC proposals or tech-reg
