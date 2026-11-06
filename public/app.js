@@ -155,6 +155,7 @@ function selectInput(value, options, onChange) {
     const optVal = typeof opt === "string" ? opt : opt.value;
     const optLabel = typeof opt === "string" ? opt : opt.label;
     const o = h("option", { value: optVal }, optLabel);
+    if (typeof opt !== "string" && opt.disabled) o.disabled = true;
     if (optVal === value) o.selected = true;
     sel.appendChild(o);
   }
@@ -167,7 +168,11 @@ function selectInput(value, options, onChange) {
 // outranks the part's current lowest-priority holder can still legitimately
 // claim it, bumping that holder into "out of compliance" rather than being
 // blocked here.
-function upgradeSelect(value, onChange) {
+// `blocked` (optional Set of part numbers): parts this driver can't newly
+// pick right now (mid-season window only, see computeBlockedPicks in
+// server/db/priority.js). Shown but disabled, so it's clear the part
+// exists but is taken.
+function upgradeSelect(value, onChange, blocked = null) {
   // Monospaced (see .upgrade-select in style.css) so the padded columns
   // below actually line up into a table instead of ragged inline text.
   const sel = h("select", { class: "upgrade-select" });
@@ -206,7 +211,9 @@ function upgradeSelect(value, onChange) {
       const tierCol = String(u.tier).padEnd(2);
       const costCol = costText(u).padStart(costWidth);
       const label = `${partCol} ${tierCol} ${costCol}`;
-      const o = h("option", { value: String(u.partNumber) }, label);
+      const isBlocked = !isCurrent && blocked?.has(u.partNumber);
+      const o = h("option", { value: String(u.partNumber) }, isBlocked ? `${label}  (taken)` : label);
+      if (isBlocked) o.disabled = true;
       if (isCurrent) o.selected = true;
       og.appendChild(o);
     }
@@ -1773,7 +1780,11 @@ function renderUpgradeTracker(container) {
     const sponsorTd = h("td");
     const sponsorCell = h("div", { class: "upgrade-cell" });
     if (canPickSponsor) {
-      sponsorCell.appendChild(selectInput(e.sponsor, ["", ...sponsorNames], (v) => { e.sponsor = v || null; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
+      // Mid-season window: sponsors held by a team that kept theirs, or
+      // claimed by a higher-priority team, are shown but disabled.
+      const blockedSponsors = new Set(isAdmin() ? [] : e.blockedSponsors || []);
+      const sponsorOptions = ["", ...sponsorNames.map((n) => (n !== e.sponsor && blockedSponsors.has(n) ? { value: n, label: `${n} (taken)`, disabled: true } : n))];
+      sponsorCell.appendChild(selectInput(e.sponsor, sponsorOptions, (v) => { e.sponsor = v || null; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId); }));
     } else {
       // Single line, never wrapped — a read-only label that wraps to 2
       // lines for a long sponsor name (e.g. "E. Mercury Air System") while
@@ -1835,7 +1846,7 @@ function renderUpgradeTracker(container) {
             }
           }
           e.upgrades[i] = v; recomputeUpgradeTracker(); renderActive(); saveUpgradeTrackerRow(e.driverId);
-        }));
+        }, isAdmin() ? null : new Set(e.blockedParts || [])));
       } else {
         const u = DATA.inventory.upgrades.find((u) => u.partNumber === Number(val));
         // Same single-line fix as the sponsor cell above.
@@ -1879,7 +1890,10 @@ function renderUpgradeTracker(container) {
             return `Over budget by ${fmtMoney(issue.overBudget)}. The selected upgrades cost more than this team's budget.`;
           }
           if (issue.sponsor != null) {
-            return `Sponsor "${issue.sponsor}" is oversubscribed — ${issue.higherPriorityCount} higher-priority driver(s) also claimed it.`;
+            const sponsorReasons = [];
+            if (issue.retainedCount > 0) sponsorReasons.push("a team kept it going into the mid-season break");
+            if (issue.higherPriorityCount > 0) sponsorReasons.push(`${issue.higherPriorityCount} higher-priority driver(s) also claimed it`);
+            return `Sponsor "${issue.sponsor}" is oversubscribed — ${sponsorReasons.join(" and ")}.`;
           }
           // A driver retaining a part from last season always outranks a
           // fresh claim on it regardless of standings priority (see

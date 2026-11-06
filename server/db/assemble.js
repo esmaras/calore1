@@ -1,6 +1,6 @@
 const { itemTypes } = require("./keys");
 const { buildStandingsRowsForSeason, driversAsOfSeason } = require("./ranking");
-const { computeCompliance, computeSponsorCompliance } = require("./priority");
+const { computeCompliance, computeSponsorCompliance, computeBlockedPicks } = require("./priority");
 const { buildVotingView, championDriverId, resolveRequiredYes } = require("./voting");
 const { resolveRules, computeSeasonPhase, midwayReached, computeMidSeasonEligible, countSwaps } = require("./midSeason");
 
@@ -229,6 +229,10 @@ function assembleData(items, viewedSeason, viewerDriverId = null, { isAuthentica
     const midSeasonEligible = midSeasonEligibleIds.has(driverId);
     const midSeasonFunding = midSeasonEligible && midwayReached(exchangePhase.phase) ? exchangeRules.midSeasonFunding : 0;
     const midSeasonBaseline = Array.isArray(row.midSeasonBaseline) ? row.midSeasonBaseline : null;
+    // The sponsor held going into the window — frozen alongside
+    // midSeasonBaseline on the row's first write during it; until then
+    // the current sponsor is what they went in with.
+    const midSeasonBaselineSponsor = midSeasonBaseline ? (row.midSeasonBaselineSponsor ?? null) : (row.sponsor || null);
     const budget = (seasonItem.baseTeamBudget || 0) + sponsorFunding(sponsors, row.sponsor) + (row.modification || 0) + carryover + midSeasonFunding;
     const spent = (row.upgrades || []).reduce((sum, p) => sum + (p != null ? computeUpgradeCost(upgradeParts, p) : 0), 0);
     // swapAllowance/carryoverUpgrades are frozen onto this row the moment
@@ -261,6 +265,7 @@ function assembleData(items, viewedSeason, viewerDriverId = null, { isAuthentica
       midSeasonEligible,
       midSeasonFunding,
       midSeasonBaseline,
+      midSeasonBaselineSponsor,
       midSeasonSwapsUsed: countSwaps(midSeasonBaseline, row.upgrades),
     };
   });
@@ -276,12 +281,19 @@ function assembleData(items, viewedSeason, viewerDriverId = null, { isAuthentica
   // as other drivers make their picks.
   const complianceIssuesByDriver = computeCompliance(items, seasonNumber, driverItems, upgradeEntries, upgradeParts);
   const sponsorIssuesByDriver = computeSponsorCompliance(items, seasonNumber, driverItems, upgradeEntries);
+  // Mid-season window only: what each driver can't newly pick because it
+  // isn't available to them (see computeBlockedPicks). Enforced by the
+  // Upgrade Tracker route, greyed out in the client's dropdowns.
+  const blockedPicksByDriver = computeBlockedPicks(items, seasonNumber, driverItems, upgradeEntries, upgradeParts);
   for (const entry of upgradeEntries) {
     const issues = [...(complianceIssuesByDriver.get(entry.driverId) || []), ...(sponsorIssuesByDriver.get(entry.driverId) || [])];
     // Spending past the budget is flagged the same way as an oversubscribed
     // pick: the save still goes through, the row just shows as non-compliant.
     if (entry.remainingBudget < 0) issues.push({ overBudget: -entry.remainingBudget });
     entry.outOfCompliance = issues.length > 0;
+    const blocked = blockedPicksByDriver.get(entry.driverId);
+    entry.blockedParts = blocked ? blocked.parts : [];
+    entry.blockedSponsors = blocked ? blocked.sponsors : [];
     entry.complianceIssues = issues;
   }
 

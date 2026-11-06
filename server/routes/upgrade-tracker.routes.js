@@ -5,6 +5,7 @@ const { requireAdmin, requireSelfOrAdmin } = require("../auth/middleware");
 const { resolveSeason, seasonEndedLock } = require("../db/currentSeason");
 const { driversAsOfSeason } = require("../db/ranking");
 const { resolveRules, computeSeasonPhase, midwayReached, computeMidSeasonEligible, countSwaps } = require("../db/midSeason");
+const { assembleData } = require("../db/assemble");
 
 // Held parts as a sorted list of numbers — slot order and empty slots
 // don't count as a change.
@@ -104,7 +105,11 @@ router.put("/:driverId", requireSelfOrAdmin("driverId"), async (req, res) => {
   // the first write during it (by anyone) — the race-1 lock means the
   // stored picks at that moment are exactly what they raced the first half on.
   let midSeasonBaseline = Array.isArray(existing.midSeasonBaseline) ? existing.midSeasonBaseline : null;
-  if (phase === "midseasonWindow" && !midSeasonBaseline) midSeasonBaseline = existing.upgrades || [];
+  let midSeasonBaselineSponsor = midSeasonBaseline ? (existing.midSeasonBaselineSponsor ?? null) : null;
+  if (phase === "midseasonWindow" && !midSeasonBaseline) {
+    midSeasonBaseline = existing.upgrades || [];
+    midSeasonBaselineSponsor = existing.sponsor || null;
+  }
 
   if (!isAdmin && rules.lockUpgradesAfterFirstRace) {
     if (phase === "locked" || phase === "postMidseason") {
@@ -125,6 +130,28 @@ router.put("/:driverId", requireSelfOrAdmin("driverId"), async (req, res) => {
         return res.status(400).json({
           error: `You can only swap ${rules.midSeasonMaxSwaps} upgrade card${rules.midSeasonMaxSwaps === 1 ? "" : "s"} at the mid-season break — this would swap ${swaps}.`,
         });
+      }
+    }
+  }
+
+  // Mid-season window: a driver can only take a part or sponsor that's
+  // actually available to them, meaning there's a copy left, or the only
+  // claims ahead of them are lower-priority teams who also swapped to it.
+  // Anything held going into the window can't be taken (see
+  // computeBlockedPicks in server/db/priority.js). Only NEW picks are
+  // checked: a pick the driver already had saved is never rejected here
+  // just because someone else's later move made it contested.
+  if (!isAdmin && phase === "midseasonWindow" && (upgradesChanged || sponsorChanged)) {
+    const entry = assembleData(all, season).upgradeTracker.entries.find((e) => e.driverId === driverId);
+    if (entry) {
+      const held = new Set(partSet(existing.upgrades));
+      const blockedParts = new Set(entry.blockedParts);
+      const taken = partSet(nextUpgrades).find((p) => !held.has(p) && blockedParts.has(p));
+      if (taken != null) {
+        return res.status(400).json({ error: `Part #${taken} isn't available. Every copy is held by a team that kept it going into the mid-season break or has higher priority.` });
+      }
+      if (sponsorChanged && nextSponsor && entry.blockedSponsors.includes(nextSponsor)) {
+        return res.status(400).json({ error: `Sponsor "${nextSponsor}" isn't available. It's held by a team that kept it going into the mid-season break or has higher priority.` });
       }
     }
   }
@@ -161,6 +188,7 @@ router.put("/:driverId", requireSelfOrAdmin("driverId"), async (req, res) => {
     carryoverUpgrades: existing.carryoverUpgrades ?? null,
     swapAllowance: existing.swapAllowance ?? null,
     midSeasonBaseline,
+    midSeasonBaselineSponsor,
   };
   await repo.putItem(item);
   res.json(item);

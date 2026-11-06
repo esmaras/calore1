@@ -87,6 +87,73 @@ function rankClaimsByPriority(claims, priorityRank) {
   });
 }
 
+// Claims on each upgrade part: [{ driverId, isNew }]. A part still in
+// this driver's "retained" set was never given up, so it's exempt from
+// being bumped by a higher-priority claim (see rankClaimsByPriority).
+// Before the mid-season break that set is carryoverUpgrades (what they
+// finished last season holding). From the break on, it's what they held
+// going into the window: midSeasonBaseline, or the current picks if they
+// never touched their row during it. Anything else (a brand-new driver's
+// picks, a swap-in) is a fresh claim.
+function buildPartClaims(upgradeEntries, atMidway) {
+  const claimsByPart = {};
+  for (const entry of upgradeEntries) {
+    const retainedSource = atMidway ? (entry.midSeasonBaseline ?? entry.upgrades) : entry.carryoverUpgrades;
+    const retained = new Set(retainedSource || []);
+    for (const p of entry.upgrades || []) {
+      if (p == null) continue;
+      (claimsByPart[p] ||= []).push({ driverId: entry.driverId, isNew: !retained.has(p) });
+    }
+  }
+  return claimsByPart;
+}
+
+// Same idea for sponsors. Before the break nobody retains a sponsor (a new
+// season starts with none, so it's pure priority). From the break on, a
+// team keeping the sponsor it held going into the window retains it, so a
+// better-placed team can't take it at the mid-season swap.
+function buildSponsorClaims(upgradeEntries, atMidway) {
+  const claimsBySponsor = {};
+  for (const entry of upgradeEntries) {
+    if (!entry.sponsor) continue;
+    const retained = atMidway && entry.midSeasonBaselineSponsor === entry.sponsor;
+    (claimsBySponsor[entry.sponsor] ||= []).push({ driverId: entry.driverId, isNew: !retained });
+  }
+  return claimsBySponsor;
+}
+
+// How many OTHER claims rank ahead of `driverId` making a fresh claim:
+// every retained claim, plus every fresh claim from a higher-priority
+// driver. Lower-priority fresh claims don't count, since this driver
+// would bump them.
+function claimsAhead(claims, driverId, priorityRank) {
+  const myRank = priorityRank.get(driverId) ?? Infinity;
+  return (claims || []).filter((c) => c.driverId !== driverId && (!c.isNew || (priorityRank.get(c.driverId) ?? Infinity) < myRank)).length;
+}
+
+// Mid-season window only: for each driver, the parts and sponsors they
+// can't newly pick right now because the claims ahead of them already fill
+// every copy. Unlike the compliance flags (which only flag after the fact),
+// these are enforced as hard blocks by the Upgrade Tracker route and greyed
+// out in the dropdowns. Outside the window this is empty: end-of-season
+// picks keep the flag-only behaviour.
+function computeBlockedPicks(items, seasonNumber, driverItems, upgradeEntries, upgradeParts) {
+  const result = new Map();
+  if (computeSeasonPhase(items, seasonNumber).phase !== "midseasonWindow") return result;
+  const partRank = computePriorityOrder(items, seasonNumber, driverItems);
+  const sponsorRank = computePriorityOrder(items, seasonNumber, driverItems, { reversed: true });
+  const partClaims = buildPartClaims(upgradeEntries, true);
+  const sponsorClaims = buildSponsorClaims(upgradeEntries, true);
+  for (const entry of upgradeEntries) {
+    const parts = upgradeParts
+      .filter((u) => claimsAhead(partClaims[u.partNumber], entry.driverId, partRank) >= (u.countAvailable || 0))
+      .map((u) => u.partNumber);
+    const sponsors = Object.keys(sponsorClaims).filter((name) => claimsAhead(sponsorClaims[name], entry.driverId, sponsorRank) >= 1);
+    result.set(entry.driverId, { parts, sponsors });
+  }
+  return result;
+}
+
 // For every upgrade part, ranks all of this season's current claims by
 // priority and flags any claim beyond the part's countAvailable as
 // non-compliant. Never mutates/removes anything — this is purely a
@@ -98,24 +165,8 @@ function computeCompliance(items, seasonNumber, driverItems, upgradeEntries, upg
   const countAvailableByPart = Object.fromEntries(upgradeParts.map((u) => [u.partNumber, u.countAvailable || 0]));
   const partTypeByNumber = Object.fromEntries(upgradeParts.map((u) => [u.partNumber, u.type]));
 
-  // From the mid-season break on, "retained" means held going into the
-  // window (midSeasonBaseline, or the current picks if the driver never
-  // touched their row during it) rather than carried over from last season.
   const atMidway = midwayReached(computeSeasonPhase(items, seasonNumber).phase);
-  const claimsByPart = {};
-  for (const entry of upgradeEntries) {
-    const retainedSource = atMidway ? (entry.midSeasonBaseline ?? entry.upgrades) : entry.carryoverUpgrades;
-    const carriedOver = new Set(retainedSource || []);
-    for (const p of entry.upgrades || []) {
-      if (p == null) continue;
-      // A part still sitting in this driver's carryoverUpgrades was never
-      // swapped out — it's retained, not a fresh pick — so it's exempt
-      // from being bumped by a higher-priority claim (see
-      // rankClaimsByPriority). Anything else, including a brand-new
-      // driver's picks or a mid-season swap-in, is a fresh claim.
-      (claimsByPart[p] ||= []).push({ driverId: entry.driverId, isNew: !carriedOver.has(p) });
-    }
-  }
+  const claimsByPart = buildPartClaims(upgradeEntries, atMidway);
 
   const issuesByDriver = new Map();
   for (const [partNumberStr, claims] of Object.entries(claimsByPart)) {
@@ -153,22 +204,24 @@ function computeCompliance(items, seasonNumber, driverItems, upgradeEntries, upg
 function computeSponsorCompliance(items, seasonNumber, driverItems, upgradeEntries) {
   const priorityRank = computePriorityOrder(items, seasonNumber, driverItems, { reversed: true });
 
-  const claimsBySponsor = {};
-  for (const entry of upgradeEntries) {
-    if (!entry.sponsor) continue;
-    (claimsBySponsor[entry.sponsor] ||= []).push({ driverId: entry.driverId });
-  }
+  const atMidway = midwayReached(computeSeasonPhase(items, seasonNumber).phase);
+  const claimsBySponsor = buildSponsorClaims(upgradeEntries, atMidway);
 
   const issuesByDriver = new Map();
   for (const [sponsor, claims] of Object.entries(claimsBySponsor)) {
-    rankClaimsByPriority(claims, priorityRank).forEach((claim, idx) => {
+    const ranked = rankClaimsByPriority(claims, priorityRank);
+    ranked.forEach((claim, idx) => {
       if (idx < 1) return; // one exclusive holder — everyone else conflicts
       const list = issuesByDriver.get(claim.driverId) || [];
-      list.push({ sponsor, higherPriorityCount: idx });
+      // Ahead of this claim is either a team retaining the sponsor from
+      // before the mid-season break, or a higher-priority claim.
+      const ahead = ranked.slice(0, idx);
+      const retainedCount = ahead.filter((c) => !c.isNew).length;
+      list.push({ sponsor, higherPriorityCount: ahead.length - retainedCount, retainedCount });
       issuesByDriver.set(claim.driverId, list);
     });
   }
   return issuesByDriver;
 }
 
-module.exports = { computePriorityOrder, rankClaimsByPriority, computeCompliance, computeSponsorCompliance };
+module.exports = { computePriorityOrder, rankClaimsByPriority, computeCompliance, computeSponsorCompliance, computeBlockedPicks };

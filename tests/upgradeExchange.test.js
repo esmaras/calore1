@@ -32,7 +32,7 @@ function baseItems({ races = 8, seasonExtra = {} } = {}) {
   DRIVER_IDS.forEach((driverId, i) => {
     items.push({ ...keys.driver(driverId), itemType: itemTypes.DRIVER, driverId, order: i, driver: `Driver ${driverId}`, player: "P", teamName: "T" });
   });
-  for (let p = 1; p <= 10; p++) {
+  for (let p = 1; p <= 14; p++) {
     items.push({ ...keys.upgradePart(p), itemType: itemTypes.UPGRADEPART, partNumber: p, type: `Type${p}`, cost: 100000, countAvailable: 1 });
   }
   return items;
@@ -139,7 +139,7 @@ function trackerRow(driverId, upgrades, sponsor = null) {
   return { ...keys.upgradeTracker(driverId, SEASON), itemType: itemTypes.UPGRADETRACKER, driverId, season: SEASON, sponsor, upgrades, modification: 0 };
 }
 
-// Each driver holds part #(index+1); parts 7-10 are free.
+// Each driver holds part #(index+1); parts 7-14 are free.
 function itemsWithPicks(resultsPosted, seasonExtra) {
   const items = postResults(baseItems({ seasonExtra }), resultsPosted);
   DRIVER_IDS.forEach((d, i) => items.push(trackerRow(d, [i + 1, null, null], null)));
@@ -213,11 +213,11 @@ test("mid-season window: bottom-X can swap up to the max, others only sponsor", 
   assert.deepEqual(store.get(`${keys.upgradeTracker("d6", SEASON).PK}|${keys.upgradeTracker("d6", SEASON).SK}`).midSeasonBaseline, [6, null, null]);
 
   // Now d5 (eligible) holds [5] only — test the max with a 3-part baseline.
-  await put(ADMIN, "d5", { sponsor: null, upgrades: [5, 8, 9], modification: 0 });
-  installRepoStub([...store.values()].map((i) => (i.driverId === "d5" && i.itemType === itemTypes.UPGRADETRACKER ? { ...i, midSeasonBaseline: [5, 8, 9] } : i)));
-  const two = await put(asDriver("d5"), "d5", { sponsor: null, upgrades: [5, 7, 10], modification: 0 });
+  await put(ADMIN, "d5", { sponsor: null, upgrades: [5, 11, 12], modification: 0 });
+  installRepoStub([...store.values()].map((i) => (i.driverId === "d5" && i.itemType === itemTypes.UPGRADETRACKER ? { ...i, midSeasonBaseline: [5, 11, 12] } : i)));
+  const two = await put(asDriver("d5"), "d5", { sponsor: null, upgrades: [5, 13, 14], modification: 0 });
   assert.equal(two.status, 200);
-  const three = await put(asDriver("d5"), "d5", { sponsor: null, upgrades: [7, 10, 2], modification: 0 });
+  const three = await put(asDriver("d5"), "d5", { sponsor: null, upgrades: [8, 13, 14], modification: 0 });
   assert.equal(three.status, 400);
   assert.match(three.body.error, /only swap 2/);
 
@@ -244,4 +244,63 @@ test("a negative remaining budget is flagged like an upgrade conflict", () => {
   assert.equal(byId.d1.outOfCompliance, true);
   assert.deepEqual(byId.d1.complianceIssues, [{ overBudget: 50000 }]);
   assert.equal(byId.d2.outOfCompliance, false);
+});
+
+// ---------- mid-season availability (no stealing) ----------
+
+function windowItemsWithSponsors() {
+  const items = itemsWithPicks(4);
+  for (const name of ["Acme", "Bolt"]) items.push({ ...keys.sponsor(name), itemType: itemTypes.SPONSOR, name, funding: 0 });
+  // d2 goes into the break holding Acme.
+  const d2 = items.find((i) => i.itemType === itemTypes.UPGRADETRACKER && i.driverId === "d2");
+  d2.sponsor = "Acme";
+  return items;
+}
+
+test("mid-season: a part held going into the break can't be taken, even by higher priority", async () => {
+  installRepoStub(windowItemsWithSponsors());
+  // d6 (last place = first upgrade priority) tries d3's retained part #3.
+  const res = await put(asDriver("d6"), "d6", { sponsor: null, upgrades: [3, null, null], modification: 0 });
+  assert.equal(res.status, 400);
+  assert.match(res.body.error, /Part #3 isn't available/);
+});
+
+test("mid-season: a higher-priority team can take a part a lower-priority team swapped to, not the reverse", async () => {
+  installRepoStub(windowItemsWithSponsors());
+  // d3 (lower upgrade priority than d6) swaps to free part #7 first.
+  assert.equal((await put(asDriver("d3"), "d3", { sponsor: null, upgrades: [7, null, null], modification: 0 })).status, 200);
+  // d4 is higher priority than d3, so d4 can take #7 — d3 gets flagged.
+  assert.equal((await put(asDriver("d4"), "d4", { sponsor: null, upgrades: [7, null, null], modification: 0 })).status, 200);
+  const data = assembleData([...store.values()], SEASON);
+  const d3 = data.upgradeTracker.entries.find((e) => e.driverId === "d3");
+  assert.equal(d3.outOfCompliance, true);
+  // d5 (higher priority than d4) could still take #7.
+  assert.ok(!data.upgradeTracker.entries.find((e) => e.driverId === "d5").blockedParts.includes(7));
+  // Part #4, which d4 swapped away, is back in the pool and open to d3.
+  assert.ok(!data.upgradeTracker.entries.find((e) => e.driverId === "d3").blockedParts.includes(4));
+});
+
+test("mid-season: a lower-priority team can't take a part a higher-priority team already swapped to", async () => {
+  installRepoStub(windowItemsWithSponsors());
+  assert.equal((await put(asDriver("d6"), "d6", { sponsor: null, upgrades: [7, null, null], modification: 0 })).status, 200);
+  const res = await put(asDriver("d5"), "d5", { sponsor: null, upgrades: [7, null, null], modification: 0 });
+  assert.equal(res.status, 400);
+});
+
+test("mid-season: sponsors held going into the break can't be taken; fresh sponsor picks go by priority", async () => {
+  installRepoStub(windowItemsWithSponsors());
+  // d1 (leader = first sponsor priority) can't take d2's retained Acme.
+  const steal = await put(asDriver("d1"), "d1", { sponsor: "Acme", upgrades: [1, null, null], modification: 0 });
+  assert.equal(steal.status, 400);
+  assert.match(steal.body.error, /Acme/);
+
+  // d4 picks free Bolt; d1 (higher sponsor priority) can still take it.
+  assert.equal((await put(asDriver("d4"), "d4", { sponsor: "Bolt", upgrades: [4, null, null], modification: 0 })).status, 200);
+  assert.equal((await put(asDriver("d1"), "d1", { sponsor: "Bolt", upgrades: [1, null, null], modification: 0 })).status, 200);
+  // ...but d5 (lower than both) can't.
+  const late = await put(asDriver("d5"), "d5", { sponsor: "Bolt", upgrades: [5, null, null], modification: 0 });
+  assert.equal(late.status, 400);
+
+  const d2 = assembleData([...store.values()], SEASON).upgradeTracker.entries.find((e) => e.driverId === "d2");
+  assert.equal(d2.outOfCompliance, false, "the team that kept Acme stays compliant");
 });
